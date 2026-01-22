@@ -41,21 +41,33 @@ async function warnaiPeta() {
 }
 
 // 1. Load Peta
+// ... kode import ...
+
 onMounted(async () => {
+  console.log("--- MEMULAI PROSES LOAD ---"); // Cek 1
+
   try {
-    // Load SVG
-    const response = await fetch('/test_peta.svg');
-    if (!response.ok) throw new Error("Gagal load SVG");
-    svgContent.value = await response.text();
+    // Ganti nama file sesuai nama file SVG Anda yang asli di folder public
+    const namaFile = '/peta_comipara_utama.svg'; 
+    console.log("Mencoba mengambil file:", namaFile); // Cek 2
 
-    // TUNGGU sebentar agar SVG benar-benar muncul di layar
-    await nextTick();
+    const response = await fetch(namaFile);
+    console.log("Status Server:", response.status); // Cek 3 (Harusnya 200)
 
-    // Panggil fungsi mewarnai
-    warnaiPeta();
+    if (!response.ok) {
+      throw new Error(`Gagal! Status: ${response.status}`);
+    }
 
+    const text = await response.text();
+    console.log("Isi File (Huruf awal):", text.substring(0, 100)); // Cek 4 (Harusnya <svg...)
+
+    svgContent.value = text;
+    // Panggil warnaiPeta() di sini jika Anda sudah pakai kode pewarnaan
+    // warnaiPeta(); 
+    
   } catch (error) {
-    errorMessage.value = error.message;
+    console.error("ERROR FATAL:", error); // Cek Error
+    errorMessage.value = "Error: " + error.message;
   }
 });
 
