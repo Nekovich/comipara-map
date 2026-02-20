@@ -13,6 +13,7 @@ const infoCircle = ref(null); // untuk menyimpan data circle yang diambil
 const showForm = ref(false); // untuk mengontrol tampilan form input
 const inputNama = ref(''); // untuk input nama circle
 const inputFandom = ref([]); // untuk input fandom (array)
+const inputKatalog = ref(''); // untuk menampung link katalog
 const allCirclesCache = ref([]); // Untuk menyimpan data lengkap agar pencarian cepat
 const inputSearch = ref(''); // Untuk kotak pencarian global
 const filterInput = ref(''); // Untuk kotak input filter karakter
@@ -161,8 +162,8 @@ onMounted(async () => {
     
     if (elementPeta) {
       panzoom(elementPeta, {
-        maxZoom: 12,        // Bisa zoom in sampai 5x lipat
-        minZoom: 0.5,      // Bisa zoom out sampai setengah ukuran
+        maxZoom: 13,        // Bisa zoom in sampai 5x lipat
+        minZoom: 1,      // Bisa zoom out sampai setengah ukuran
         bounds: true,      // Agar peta tidak bisa digeser sampai hilang dari layar
         boundsPadding: 0.5 // Batas kelonggaran pinggir
       });
@@ -236,6 +237,7 @@ async function onPetaClick(event) {
     inputFandom.value = [];
     selectedKarakter.value = [];
     inputSearchKarakter.value = '';
+    inputKatalog.value = '';
 
     // Berhenti di sini, jangan lanjut ke bawah
     return; 
@@ -300,6 +302,7 @@ async function submitData() {
       circle_name: inputNama.value,
       fandoms: inputFandom.value,
       characters: selectedKarakter.value,
+      link_katalog: inputKatalog.value,
       status: 'pending'
     });
 
@@ -486,6 +489,15 @@ watch(inputSearch, (keywordBaru) => {
             <strong>Karakter:</strong> 
               {{ infoCircle.characters ? infoCircle.characters.join(', ') : '-' }}
           </p>
+          <p>
+            <strong>Katalog:</strong> 
+            <a v-if="infoCircle.link_katalog" :href="infoCircle.link_katalog" target="_blank" style="color: #3498db; text-decoration: none; font-weight: bold;">
+              Buka Katalog ↗
+            </a>
+            <span v-else style="color: grey; font-style: italic;">
+              tidak ada katalog
+            </span>
+          </p>
           
           <div :class="['status-badge', infoCircle.status]">
             {{ infoCircle.status === 'verified' ? 'Terverifikasi' : 'Menunggu Verifikasi' }}
@@ -515,6 +527,11 @@ watch(inputSearch, (keywordBaru) => {
               </label>
             </div>
             <small style="color: grey;">Terpilih: {{ inputFandom.join(', ') }}</small>
+          </div>
+
+          <div class="form-group">
+            <label>Link Katalog (Google Drive / Opsional):</label>
+            <input v-model="inputKatalog" type="url" placeholder="https://drive.google.com/...">
           </div>
 
           <div class="form-group" style="position: relative;">
