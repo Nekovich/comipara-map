@@ -343,7 +343,7 @@ function jalankanFilter() {
       
     } else {
       // --- TIDAK MATCH ---
-      elemenMeja.style.fill = '#dcdde1'; 
+      elemenMeja.style.fill = '#9a9a9a'; 
       elemenMeja.style.fillOpacity = '0.8'; 
     }
   });
@@ -401,7 +401,7 @@ watch(inputSearch, (keywordBaru) => {
 
 <template>
   <div class="container">
-    <h1>Peta Arknights di Comipara</h1>
+    <h1>Peta persebaran merch Arknights di Comipara</h1>
 
     <div class="layout">
       
