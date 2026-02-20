@@ -63,6 +63,10 @@ const saranKarakter = computed(() => {
   );
 });
 
+// variabel untuk touchscreen (mobile)
+const touchStartX = ref(0);
+const touchStartY = ref(0);
+
 // AKHIR DAFTAR VARIABEL --- IGNORE ---
 
 function onFilterBlur() {
@@ -177,6 +181,36 @@ onMounted(async () => {
     errorMessage.value = "Error: " + error.message;
   }
 });
+
+// Saat jari diangkat dari layar (untuk reset posisi awal pada mobile)
+function onTouchStart(event) {
+  if (event.touches && event.touches.length > 0) {
+    touchStartX.value = event.touches[0].clientX;
+    touchStartY.value = event.touches[0].clientY;
+  }
+}
+// Saat jari diangkat dari layar
+function onTouchEnd(event) {
+  if (event.changedTouches && event.changedTouches.length > 0) {
+    const touchEndX = event.changedTouches[0].clientX;
+    const touchEndY = event.changedTouches[0].clientY;
+    
+    // Hitung seberapa jauh jari bergeser (dalam pixel)
+    const deltaX = Math.abs(touchEndX - touchStartX.value);
+    const deltaY = Math.abs(touchEndY - touchStartY.value);
+    
+    // Jika pergeseran kurang dari 10 pixel, ini murni TAP (Klik), bukan GESER
+    if (deltaX < 10 && deltaY < 10) {
+      // Karena event pada touch kadang tidak membawa target yang presisi untuk SVG,
+      // kita gunakan document.elementFromPoint untuk mencari elemen apa yang persis ada di bawah jari
+      const targetElement = document.elementFromPoint(touchEndX, touchEndY);
+      
+      // Buat event bohongan yang isinya elemen target, lalu kirim ke fungsi klik asli kita
+      const fakeEvent = { target: targetElement };
+      onPetaClick(fakeEvent);
+    }
+  }
+}
 
 // 2. Klik Meja 
 async function onPetaClick(event) {
@@ -413,6 +447,8 @@ watch(inputSearch, (keywordBaru) => {
               class="peta-box" 
               v-html="svgContent"
               @click="onPetaClick"
+              @touchstart="onTouchStart"
+              @touchend="onTouchEnd"
             ></div>
           </div>
         </div>
