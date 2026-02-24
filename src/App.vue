@@ -867,6 +867,15 @@ watch(inputSearch, (keywordBaru) => {
 
 
 <style>
+:root {
+  color-scheme: light;
+}
+
+h1 {
+  color: #2c3e50 !important; /* Paksa jadi biru gelap/hitam */
+  text-shadow: 1px 1px 2px white; /* Tambah bayangan putih tipis agar kontras dengan BG */
+}
+
 body {
   /* Ganti URL sesuai nama file gambar Anda */
   background-image: url('/bg.png'); 
@@ -924,11 +933,36 @@ body {
 /* Kolom Kanan (Info) - Mengambil 1 bagian layar */
 .info-panel { 
   flex: 1; 
-  background: #f9f9f9; 
+  background-color: #f9f9f9 !important; /* Paksa background tetap terang */
+  color: #2c3e50 !important;           /* Paksa teks tetap gelap */
   padding: 20px; 
   border-radius: 8px; 
   min-width: 250px; 
-  height: fit-content; /* Agar panel tidak memanjang kosong ke bawah */
+  height: fit-content;
+}
+
+/* Tambahkan ini di bawahnya untuk mengunci warna semua teks di dalam panel */
+.info-panel h2, 
+.info-panel h3, 
+.info-panel p, 
+.info-panel strong, 
+.info-panel span,
+.info-panel label {
+  color: #2c3e50 !important; /* Mencegah teks jadi putih di mode gelap */
+}
+
+/* Khusus untuk teks kecil atau hint agar tidak hilang */
+.info-panel .hint, 
+.info-panel small {
+  color: #666666 !important;
+}
+
+/* Pastikan card di dalam panel juga tetap putih */
+.info-panel .card, 
+.info-panel .form-card {
+  background-color: #ffffff !important;
+  color: #2c3e50 !important;
+  border: 1px solid #dddddd;
 }
 
 /* --- KODE ZOOM (Tetap sama seperti sebelumnya) --- */
@@ -958,7 +992,7 @@ body {
 }
 
 /* Styling Kartu Info */
-.card { background: white; padding: 15px; border-radius: 8px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }
+.card { background: white; padding: 15px; color: #2c3e50 !important; border-radius: 8px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }
 .status-badge { display: inline-block; padding: 5px 12px; border-radius: 15px; font-size: 0.8em; color: white; margin-top: 10px; font-weight: bold;}
 .status-badge.verified { background-color: #42b883; } /* Hijau */
 .status-badge.pending { background-color: #f7b731; }  /* Oranye */
@@ -966,14 +1000,18 @@ body {
 /* Styling Form */
 .form-card { background: white; padding: 15px; border-radius: 8px; border: 2px solid #3498db; margin-top: 10px; }
 .form-group { margin-bottom: 10px; }
-.form-group label { display: block; margin-bottom: 5px; font-weight: bold; font-size: 0.9em; }
-.form-group input { width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px; box-sizing: border-box; }
+.form-group label { color: #2c3e50 !important; display: block; margin-bottom: 5px; font-weight: bold; font-size: 0.9em; }
+.form-group input {background-color: white !important; color: #2c3e50 !important; width: 100%; padding: 8px; border: 1px solid #ddd !important; border-radius: 4px; box-sizing: border-box; }
 .hint { font-size: 0.8em; color: #666; margin-bottom: 15px; }
+::placeholder {
+  color: #999 !important;
+  opacity: 1; 
+}
 
 /* Tombol */
 .btn-submit { background: #3498db; color: white; border: none; padding: 10px 20px; border-radius: 4px; cursor: pointer; width: 100%; font-weight: bold; }
 .btn-submit:hover { background: #2980b9; }
-.btn-small { background: none; border: 1px solid #ccc; padding: 2px 8px; cursor: pointer; font-size: 0.8em; border-radius: 4px; }
+.btn-small { background-color: #f0f0f0 !important; color: #2c3e50 !important; background: none; border: 1px solid #ccc; padding: 2px 8px; cursor: pointer; font-size: 0.8em; border-radius: 4px; }
 .btn-cancel { background: none; border: none; color: red; margin-top: 10px; cursor: pointer; width: 100%; }
 
 /* SVG Responsif */
@@ -1042,7 +1080,7 @@ svg rect:hover, svg path:hover, svg polygon:hover {
   animation: denyut 1.5s infinite;
 }
 .discord-link {
-  color: #5865f2;
+  color: #5865f2 !important;
   text-decoration: none;
   transition: 0.2s;
 }
@@ -1050,5 +1088,19 @@ svg rect:hover, svg path:hover, svg polygon:hover {
   color: #404eed;
   text-decoration: underline;
 }
+/* Untuk input pencarian dan semua input di dalam form */
+input[type="text"], 
+input[type="url"],
+.search-box input {
+  background-color: #ffffff !important; /* Paksa background putih */
+  color: #2c3e50 !important;           /* Paksa teks hitam */
+  border: 1px solid #ddd !important;
+  opacity: 1 !important;
+}
 
+/* Pastikan kotak pencarian (container-nya) juga tetap putih */
+.search-box {
+  background-color: #ffffff !important;
+  color: #2c3e50 !important;
+}
 </style>
