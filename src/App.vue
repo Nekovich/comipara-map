@@ -343,8 +343,8 @@ async function submitData() {
     fandoms: inputFandom.value,
     characters: selectedKarakter.value,
     link_katalog: inputKatalog.value,
-    contributor_name: currentUser.value.user_metadata.custom_claims?.global_name || currentUser.value.user_metadata.full_name,
-    contributor_uid: currentUser.value.id,
+    contributor_name: currentUser.value?.user_metadata?.custom_claims?.global_name || currentUser.value?.user_metadata?.full_name || 'Guest',
+contributor_uid: currentUser.value?.id || null,
     status: 'pending' // Setiap ada editan, status balik ke pending (oranye)
   };
 
