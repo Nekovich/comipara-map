@@ -1014,14 +1014,6 @@ svg rect:hover, svg path:hover, svg polygon:hover {
 .search-match {
   animation: denyut 1.5s infinite;
 }
-.meja-pending {
-  fill: #ff9800 !important; /* Warna Oranye */
-  background-color: #ff9800 !important;
-}
 
-.meja-filled {
-  fill: #4caf50 !important; /* Warna Hijau */
-  background-color: #4caf50 !important;
-}
 
 </style>
