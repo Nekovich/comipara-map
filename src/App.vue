@@ -351,7 +351,7 @@ async function submitData() {
     
     // Identitas pengedit
     contributor_name: currentUser.value?.user_metadata?.custom_claims?.global_name || currentUser.value?.user_metadata?.full_name || 'Guest',
-    contributor_uid: currentUser.value?.id || null,
+    contributor_uid: currentUser.value.identities[0]?.identity_data?.provider_id || currentUser.value.id
     
     status: 'pending' // Tetap pending agar kamu tahu ada yang minta update
   };
@@ -622,7 +622,14 @@ watch(inputSearch, (keywordBaru) => {
 
           <div v-if="infoCircle.contributor_name" style="margin-top: 20px; border-top: 1px solid #eee; padding-top: 10px;">
             <small style="color: grey;">✍️ Data disumbangkan oleh:</small> <br>
-            <strong style="color: #2c3e50; font-size: 1.1em;">{{ infoCircle.contributor_name }}</strong>
+            <strong style="color: #2c3e50; font-size: 1.1em;">
+              <a 
+                v-if="infoCircle.contributor_uid"
+                :href="'https://discord.com/users/' + infoCircle.contributor_uid" 
+                target="_blank" 
+                class="discord-link"
+              >{{ infoCircle.contributor_name }}</a>
+            </strong>
           </div>
           
           <div style="margin-top: 20px; border-top: 1px solid #eee; padding-top: 10px;">
@@ -1029,5 +1036,22 @@ svg rect:hover, svg path:hover, svg polygon:hover {
   animation: denyut 1.5s infinite;
 }
 
+.discord-link {
+  color: #5865f2; /* Warna Biru Blurple Discord */
+  text-decoration: none;
+  font-weight: 600;
+  border-bottom: 1px dashed transparent;
+  transition: all 0.2s ease;
+}
 
+.discord-link:hover {
+  color: #4752c4;
+  border-bottom: 1px dashed #4752c4;
+}
+
+/* Tambahkan icon kecil discord jika mau (opsional) */
+.discord-link::before {
+  content: "💬 "; 
+  font-size: 0.9em;
+}
 </style>
