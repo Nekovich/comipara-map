@@ -121,38 +121,26 @@ async function warnaiPeta() {
     }
   });
 
-  // --- 2. TIMPA WARNA BERDASARKAN DATA ---
-  data.forEach(item => {
-    const elemenMeja = document.getElementById(item.booth_id);
-    
-    // PENTING: Cek apakah meja ini benar-benar ada isinya?
-    // Jika nama circle KOSONG, kita anggap meja ini "Belum Ada Data" -> Biarkan tetap Biru
-    if (!item.circle_name || item.circle_name.trim() === '') {
-       return; // Skip, jangan diapa-apain (tetap biru dari langkah 1)
-    }
-
-    if (elemenMeja) {
-      // Ambil data fandom
-      const listFandom = item.fandoms || [];
-      const isMainFandom = listFandom.includes('Arknights') || listFandom.includes('Arknights Endfield');
-
-      if (!isMainFandom) {
-        // KASUS 2: ADA DATA TAPI BUKAN ARKNIGHTS -> ABU-ABU
-        elemenMeja.style.fill = '#9a9a9a'; 
-        elemenMeja.style.fillOpacity = '0.8'; 
-      
-      } else if (item.status === 'verified') {
-        // KASUS 3: ARKNIGHTS + VERIFIED -> HIJAU
-        elemenMeja.style.fill = '#42b883'; 
-        elemenMeja.style.fillOpacity = '0.8'; 
-      
-      } else {
-        // KASUS 4: ARKNIGHTS + PENDING -> OREN
-        elemenMeja.style.fill = '#f7b731'; 
-        elemenMeja.style.fillOpacity = '0.8'; 
+  // Di dalam loop data circles yang diambil dari Supabase
+    data.forEach(item => {
+      const elementMeja = document.getElementById(item.booth_id);
+      if (elementMeja) {
+        // 1. Prioritas Utama: Cek Status
+        if (item.status === 'pending') {
+          elementMeja.classList.add('meja-pending'); // Warna Oranye
+          elementMeja.classList.remove('meja-filled');
+        } 
+        // 2. Jika status verified (hijau)
+        else if (item.status === 'verified') {
+          elementMeja.classList.add('meja-filled'); // Warna Hijau
+          elementMeja.classList.remove('meja-pending');
+        }
+        // 3. Jika tidak ada status atau kosong
+        else {
+          elementMeja.classList.remove('meja-filled', 'meja-pending');
+        }
       }
-    }
-  });
+    });
 }
 
 // 1. Load Peta SVG dan Inisialisasi Zoom
@@ -1026,6 +1014,14 @@ svg rect:hover, svg path:hover, svg polygon:hover {
 .search-match {
   animation: denyut 1.5s infinite;
 }
+.meja-pending {
+  fill: #ff9800 !important; /* Warna Oranye */
+  background-color: #ff9800 !important;
+}
 
+.meja-filled {
+  fill: #4caf50 !important; /* Warna Hijau */
+  background-color: #4caf50 !important;
+}
 
 </style>
