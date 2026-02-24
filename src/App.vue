@@ -850,6 +850,32 @@ watch(inputSearch, (keywordBaru) => {
 
 
 <style>
+body {
+  /* Ganti URL sesuai nama file gambar Anda */
+  background-image: url('/bg.png'); 
+  
+  /* Ini kunci agar gambar tidak ikut ter-scroll */
+  background-attachment: fixed; 
+  
+  /* Agar gambar menutupi seluruh layar dengan rapi */
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+  
+  margin: 0;
+  padding: 0;
+}
+
+/* Tambahkan sedikit overlay transparan pada container utama 
+   supaya teks tetap mudah dibaca di atas background */
+.container {
+  
+  /* CSS yang sudah ada tetap dipertahankan di bawahnya */
+  font-family: sans-serif; 
+  max-width: 1200px; /* Opsional: batasi lebar konten agar background terlihat di pinggir */
+  margin: 0 auto; 
+  padding: 20px;
+}
 .container {
    font-family: sans-serif; 
    max-width: 100%; 
