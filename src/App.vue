@@ -330,8 +330,8 @@ async function onPetaClick(event) {
 // 3. Submit Data Form
 // 3. Submit Data Form (VERSI PERBAIKAN)
 async function submitData() {
-  if (!inputNama.value || inputFandom.value.length === 0) {
-    alert("Mohon isi nama circle dan fandom!");
+  if (!inputNama.value) {
+    alert("Mohon isi nama circle");
     return;
   }
 
