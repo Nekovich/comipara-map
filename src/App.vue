@@ -337,20 +337,23 @@ async function submitData() {
 
   loading.value = true;
   
-  // Kita buat satu objek data yang akan dikirim
+  // LOGIKA BARU: Simpan perubahan ke kolom 'new_' 
+  // agar data asli (verified) tidak hilang
   const updateData = {
     booth_id: selectedBooth.value,
-    circle_name: inputNama.value,
-    fandoms: inputFandom.value,
-    characters: selectedKarakter.value,
-    link_katalog: inputKatalog.value,
+    // Data cadangan untuk verifikasi
+    new_circle_name: inputNama.value,
+    new_fandoms: inputFandom.value,
+    new_characters: selectedKarakter.value,
+    new_link_katalog: inputKatalog.value,
+    
+    // Identitas pengedit
     contributor_name: currentUser.value?.user_metadata?.custom_claims?.global_name || currentUser.value?.user_metadata?.full_name || 'Guest',
-contributor_uid: currentUser.value?.id || null,
-    status: 'pending' // Setiap ada editan, status balik ke pending (oranye)
+    contributor_uid: currentUser.value?.id || null,
+    
+    status: 'pending' // Tetap pending agar kamu tahu ada yang minta update
   };
 
-  // Menggunakan UPSERT dengan onConflict booth_id
-  // Ini artinya: Jika booth_id sudah ada, UPDATE baris tersebut. Jika belum, INSERT baru.
   const { error } = await supabase
     .from('circles')
     .upsert(updateData, { onConflict: 'booth_id' });
@@ -358,21 +361,13 @@ contributor_uid: currentUser.value?.id || null,
   loading.value = false;
 
   if (error) {
-    console.error("Error Detail:", error);
-    alert("Gagal mengirim data: " + error.message);
+    alert("Gagal: " + error.message);
   } else {
-    alert("Data berhasil dikirim! Menunggu verifikasi admin.");
+    alert("Perubahan dikirim! Data lama akan tetap tampil sampai Admin menyetujui.");
     showForm.value = false;
-    
-    // Refresh data agar peta berubah warna dan info panel terupdate
     await warnaiPeta();
-    
-    // Trigger klik ulang secara otomatis agar Info Panel menampilkan data terbaru
-    const fakeEvent = { target: { id: selectedBooth.value } };
-    onPetaClick(fakeEvent);
   }
 }
-
 // --- FITUR KHUSUS ADMIN ---
 const ADMIN_UID = '5fcc0983-f75f-4b70-9283-0796a7065515';
 
