@@ -301,11 +301,24 @@ async function onPetaClick(event) {
       .single();
 
     if (error && error.code === 'PGRST116') {
-      showForm.value = true; // Data kosong -> Form Input
+      // Kasus: Meja belum ada di database
+      showForm.value = true;
+      inputNama.value = '';
+      inputFandom.value = [];
+      selectedKarakter.value = [];
+      inputKatalog.value = '';
     } else if (data) {
-      infoCircle.value = data; // Data ada -> Info Panel
-      if (data.characters) selectedKarakter.value = data.characters;
+      // Kasus: Meja SUDAH ADA datanya
+      infoCircle.value = data; 
+      
+      // Isi otomatis variabel input agar saat tombol "Edit" diklik, form tidak kosong
+      inputNama.value = data.circle_name || '';
+      inputFandom.value = data.fandoms || [];
+      selectedKarakter.value = data.characters || [];
+      inputKatalog.value = data.link_katalog || '';
     }
+
+
   } catch (err) {
     console.error("Error:", err);
   } finally {
@@ -314,50 +327,48 @@ async function onPetaClick(event) {
 }
 
 // 3. Submit Data Form
+// 3. Submit Data Form (VERSI PERBAIKAN)
 async function submitData() {
-  if (!inputNama.value || !inputFandom.value) {
+  if (!inputNama.value || inputFandom.value.length === 0) {
     alert("Mohon isi nama circle dan fandom!");
     return;
   }
 
   loading.value = true;
   
-  // LOGIKA BARU: Jika sudah verified, simpan ke kolom "new_"
-  const isUpdatingVerified = infoCircle.value?.status === 'verified';
-  
+  // Kita buat satu objek data yang akan dikirim
   const updateData = {
     booth_id: selectedBooth.value,
+    circle_name: inputNama.value,
+    fandoms: inputFandom.value,
+    characters: selectedKarakter.value,
+    link_katalog: inputKatalog.value,
     contributor_name: currentUser.value.user_metadata.custom_claims?.global_name || currentUser.value.user_metadata.full_name,
     contributor_uid: currentUser.value.id,
-    // Jika update data yang sudah hijau, jangan ubah status utama dulu
-    status: isUpdatingVerified ? 'verified' : 'pending' 
+    status: 'pending' // Setiap ada editan, status balik ke pending (oranye)
   };
 
-  if (isUpdatingVerified) {
-    // Simpan ke kolom draft
-    updateData.new_circle_name = inputNama.value;
-    updateData.new_fandoms = inputFandom.value;
-    updateData.new_characters = selectedKarakter.value;
-    updateData.new_link_katalog = inputKatalog.value;
-    // Tandai bahwa ada update masuk (opsional, bisa pakai status 'update_pending')
-  } else {
-    // Simpan ke kolom utama (seperti biasa)
-    updateData.circle_name = inputNama.value;
-    updateData.fandoms = inputFandom.value;
-    updateData.characters = selectedKarakter.value;
-    updateData.link_katalog = inputKatalog.value;
-  }
-
-  const { error } = await supabase.from('circles').upsert(updateData);
+  // Menggunakan UPSERT dengan onConflict booth_id
+  // Ini artinya: Jika booth_id sudah ada, UPDATE baris tersebut. Jika belum, INSERT baru.
+  const { error } = await supabase
+    .from('circles')
+    .upsert(updateData, { onConflict: 'booth_id' });
 
   loading.value = false;
 
   if (error) {
-    alert("Gagal mengirim data!");
+    console.error("Error Detail:", error);
+    alert("Gagal mengirim data: " + error.message);
   } else {
-    alert(isUpdatingVerified ? "Update terkirim! Admin akan meninjau perubahan Anda." : "Data berhasil dikirim!");
+    alert("Data berhasil dikirim! Menunggu verifikasi admin.");
     showForm.value = false;
-    warnaiPeta();
+    
+    // Refresh data agar peta berubah warna dan info panel terupdate
+    await warnaiPeta();
+    
+    // Trigger klik ulang secara otomatis agar Info Panel menampilkan data terbaru
+    const fakeEvent = { target: { id: selectedBooth.value } };
+    onPetaClick(fakeEvent);
   }
 }
 
