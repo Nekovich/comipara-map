@@ -308,17 +308,18 @@ async function onPetaClick(event) {
       selectedKarakter.value = [];
       inputKatalog.value = '';
     } else if (data) {
-      // Kasus: Meja SUDAH ADA datanya
+      // Meja SUDAH ADA datanya
       infoCircle.value = data; 
       
-      // Isi otomatis variabel input agar saat tombol "Edit" diklik, form tidak kosong
+      // Isi variabel input untuk form edit
       inputNama.value = data.circle_name || '';
-      inputFandom.value = data.fandoms || [];
-      selectedKarakter.value = data.characters || [];
+      
+      // Karena sudah JSONB, data pasti datang sebagai Array
+      inputFandom.value = Array.isArray(data.fandoms) ? data.fandoms : [];
+      selectedKarakter.value = Array.isArray(data.characters) ? data.characters : [];
+      
       inputKatalog.value = data.link_katalog || '';
     }
-
-
   } catch (err) {
     console.error("Error:", err);
   } finally {
@@ -598,16 +599,11 @@ watch(inputSearch, (keywordBaru) => {
           <p><strong>Nama:</strong> {{ infoCircle.circle_name }}</p>
           <p>
             <strong>Fandom:</strong>
-            <span v-if="Array.isArray(infoCircle.fandoms)">
-              {{ infoCircle.fandoms.join(', ') }}
-            </span>
-            <span v-else>
-              {{ infoCircle.fandoms || '-' }}
-            </span>
+            <span>{{ Array.isArray(infoCircle.fandoms) ? infoCircle.fandoms.join(', ') : '-' }}</span>
           </p>
           <p>
             <strong>Karakter:</strong> 
-              {{ infoCircle.characters ? infoCircle.characters.join(', ') : '-' }}
+            <span>{{ Array.isArray(infoCircle.characters) ? infoCircle.characters.join(', ') : '-' }}</span>
           </p>
           <p>
             <strong>Katalog:</strong> 
