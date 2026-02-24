@@ -866,8 +866,14 @@ body {
   padding: 0;
 }
 
-/* Tambahkan sedikit overlay transparan pada container utama 
-   supaya teks tetap mudah dibaca di atas background */
+@media (max-width: 768px) {
+  body {
+    /* Di HP, sebaiknya background tidak fixed karena sering lag di Chrome/Safari Mobile */
+    background-attachment: scroll;
+    background-image: url('/bg_mobile.png'); /* Gambar versi potret */
+  }
+}
+
 .container {
   
   /* CSS yang sudah ada tetap dipertahankan di bawahnya */
