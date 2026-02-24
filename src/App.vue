@@ -128,11 +128,18 @@ async function warnaiPeta() {
     }
 
     if (elemenMeja) {
+      // LOGIKA BARU: Cek di kolom lama ATAU kolom baru (new_)
       const listFandom = item.fandoms || [];
-      const isMainFandom = listFandom.includes('Arknights') || listFandom.includes('Arknights Endfield');
+      const listFandomBaru = item.new_fandoms || []; // Ambil dari gudang sementara
+      
+      // Gabungkan keduanya untuk pengecekan warna
+      const gabunganFandom = [...listFandom, ...listFandomBaru];
+      
+      const isMainFandom = gabunganFandom.includes('Arknights') || 
+                           gabunganFandom.includes('Arknights Endfield');
 
       if (!isMainFandom) {
-        // ADA DATA TAPI BUKAN ARKNIGHTS -> ABU-ABU
+        // Jika di kedua kolom tidak ada Arknights -> ABU-ABU
         elemenMeja.style.fill = '#9a9a9a'; 
         elemenMeja.style.fillOpacity = '0.8'; 
       
