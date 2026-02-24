@@ -351,7 +351,7 @@ async function submitData() {
     
     // Identitas pengedit
     contributor_name: currentUser.value?.user_metadata?.custom_claims?.global_name || currentUser.value?.user_metadata?.full_name || 'Guest',
-    contributor_uid: currentUser.value.identities[0]?.identity_data?.provider_id || currentUser.value.id,
+    contributor_uid: currentUser.value?.identities?.find(i => i.provider === 'discord')?.identity_data?.sub || null,
     
     status: 'pending' // Tetap pending agar kamu tahu ada yang minta update
   };
@@ -622,15 +622,18 @@ watch(inputSearch, (keywordBaru) => {
 
           <div v-if="infoCircle.contributor_name" style="margin-top: 20px; border-top: 1px solid #eee; padding-top: 10px;">
             <small style="color: grey;">✍️ Data disumbangkan oleh:</small> <br>
+            
             <strong style="color: #2c3e50; font-size: 1.1em;">
               <a 
-                v-if="infoCircle.contributor_uid"
+                v-if="infoCircle.contributor_uid && /^\d+$/.test(infoCircle.contributor_uid)"
                 :href="'https://discord.com/users/' + infoCircle.contributor_uid" 
                 target="_blank" 
                 class="discord-link"
+                title="Lihat profil Discord"
               >
                 {{ infoCircle.contributor_name }}
               </a>
+              
               <span v-else>{{ infoCircle.contributor_name }}</span>
             </strong>
           </div>
