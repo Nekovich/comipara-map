@@ -106,41 +106,48 @@ async function warnaiPeta() {
   allCirclesCache.value = data; 
 
   // --- 1. RESET SEMUA MEJA JADI BIRU MUDA (DEFAULT) ---
-  // Kita paksa warna biru lewat Javascript agar tidak ada yang lolos jadi abu-abu/hitam
   const semuaMeja = document.querySelectorAll('svg rect, svg path, svg polygon');
   
   semuaMeja.forEach(meja => {
     if (meja.id) {
-      meja.style.fill = '#3498db';       // Biru Muda (Default)
-      meja.style.fillOpacity = '0.05';   // Transparan
+      meja.style.fill = '#3498db'; 
+      meja.style.fillOpacity = '0.05'; // Kembali ke pudar awal
       meja.style.stroke = 'none'; 
-      
-      // Hapus class sisa pencarian jika ada
-      meja.classList.remove('search-match');
-      meja.classList.remove('meja-selected');
+      meja.classList.remove('search-match', 'meja-selected');
     }
   });
 
-  // Di dalam loop data circles yang diambil dari Supabase
-    data.forEach(item => {
-      const elementMeja = document.getElementById(item.booth_id);
-      if (elementMeja) {
-        // 1. Prioritas Utama: Cek Status
-        if (item.status === 'pending') {
-          elementMeja.classList.add('meja-pending'); // Warna Oranye
-          elementMeja.classList.remove('meja-filled');
-        } 
-        // 2. Jika status verified (hijau)
-        else if (item.status === 'verified') {
-          elementMeja.classList.add('meja-filled'); // Warna Hijau
-          elementMeja.classList.remove('meja-pending');
-        }
-        // 3. Jika tidak ada status atau kosong
-        else {
-          elementMeja.classList.remove('meja-filled', 'meja-pending');
-        }
+  // --- 2. TIMPA WARNA BERDASARKAN STATUS ---
+  data.forEach(item => {
+    const elemenMeja = document.getElementById(item.booth_id);
+    
+    // LOGIKA BARU: Cek Status, bukan Nama Circle
+    // Jika statusnya null atau kosong, abaikan (tetap biru pudar)
+    if (!item.status || item.status.trim() === '') {
+       return; 
+    }
+
+    if (elemenMeja) {
+      const listFandom = item.fandoms || [];
+      const isMainFandom = listFandom.includes('Arknights') || listFandom.includes('Arknights Endfield');
+
+      if (!isMainFandom) {
+        // ADA DATA TAPI BUKAN ARKNIGHTS -> ABU-ABU
+        elemenMeja.style.fill = '#9a9a9a'; 
+        elemenMeja.style.fillOpacity = '0.8'; 
+      
+      } else if (item.status === 'verified') {
+        // ARKNIGHTS + VERIFIED -> HIJAU
+        elemenMeja.style.fill = '#42b883'; 
+        elemenMeja.style.fillOpacity = '0.8'; 
+      
+      } else if (item.status === 'pending') {
+        // ARKNIGHTS + PENDING -> OREN
+        elemenMeja.style.fill = '#f7b731'; 
+        elemenMeja.style.fillOpacity = '0.8'; 
       }
-    });
+    }
+  });
 }
 
 // 1. Load Peta SVG dan Inisialisasi Zoom
