@@ -84,6 +84,7 @@ async function logout() {
   await supabase.auth.signOut();
   currentUser.value = null;
 }
+ 
 
 // AKHIR DAFTAR VARIABEL --- IGNORE ------------------------
 // AKHIR DAFTAR VARIABEL --- IGNORE ------------------------
