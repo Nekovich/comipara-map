@@ -86,6 +86,14 @@ async function logout() {
 }
  
 
+
+const isSidebarOpen = ref(false);
+
+const toggleSidebar = () => {
+  isSidebarOpen.value = !isSidebarOpen.value;
+};
+
+
 // AKHIR DAFTAR VARIABEL --- IGNORE ------------------------
 // AKHIR DAFTAR VARIABEL --- IGNORE ------------------------
 
@@ -539,6 +547,29 @@ watch(inputSearch, (keywordBaru) => {
 </script>
 
 <template>
+  <button class="hamburger-btn" @click="toggleSidebar" aria-label="Menu">
+  <span></span>
+  <span></span>
+  <span></span>
+</button>
+
+<div class="sidebar-overlay" v-if="isSidebarOpen" @click="toggleSidebar"></div>
+
+<aside class="sidebar" :class="{ 'is-open': isSidebarOpen }">
+  <div class="sidebar-header">
+    <h2>Menu Peta</h2>
+    <button class="close-btn" @click="toggleSidebar">&times;</button>
+  </div>
+  
+  <div class="sidebar-content">
+    <p>Selamat datang, Doktah!</p>
+    <hr>
+    <div class="menu-item">📍 Filter Booth</div>
+    <div class="menu-item">📊 Statistik Fandom</div>
+    <div class="menu-item">🔗 Link Komunitas</div>
+  </div>
+</aside>
+
   <div class="container">
     <h1>Peta persebaran merch Arknights di Comipara</h1>
 
@@ -1104,4 +1135,96 @@ input[type="url"],
   background-color: #ffffff !important;
   color: #2c3e50 !important;
 }
+
+.hamburger-btn {
+  position: fixed;
+  top: 20px;
+  left: 20px;
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-around;
+  width: 50px;
+  height: 45px;
+  background: white; /* Beri background putih agar kontras dengan peta */
+  border: 2px solid #2c3e50;
+  border-radius: 8px;
+  cursor: pointer;
+  padding: 8px;
+  box-shadow: 0 4px 10px rgba(0,0,0,0.3); /* Shadow lebih dalam */
+  transition: all 0.2s ease; /* Efek transisi saat ditekan */
+}
+
+.hamburger-btn span {
+  width: 100%;
+  height: 4px;
+  background-color: #333;
+  transition: 0.3s;
+}
+
+.hamburger-btn:active {
+  transform: scale(0.9); /* Sedikit mengecil saat diklik */
+  background-color: #f0f0f0;
+}
+
+/* Sidebar Styling */
+.sidebar {
+  position: fixed;
+  top: 0;
+  left: -300px; /* Sembunyi di kiri */
+  width: 280px;
+  height: 100%;
+  background: white;
+  z-index: 1001;
+  transition: 0.4s ease; /* Animasi geser */
+  box-shadow: 2px 0 10px rgba(0,0,0,0.1);
+  display: flex;
+  flex-direction: column;
+}
+
+.sidebar.is-open {
+  left: 0; /* Muncul ke layar */
+}
+
+/* Overlay Gelap */
+.sidebar-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(0, 0, 0, 0.5);
+  z-index: 1000;
+}
+
+/* Header & Content Sidebar */
+.sidebar-header {
+  padding: 20px;
+  background: #2c3e50;
+  color: white;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.sidebar-content {
+  padding: 20px;
+  overflow-y: auto;
+}
+
+.menu-item {
+  padding: 12px 0;
+  border-bottom: 1px solid #eee;
+  cursor: pointer;
+  font-weight: bold;
+}
+
+.close-btn {
+  background: none;
+  border: none;
+  color: white;
+  font-size: 24px;
+  cursor: pointer;
+}
+
 </style>
