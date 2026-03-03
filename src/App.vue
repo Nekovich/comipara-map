@@ -557,16 +557,17 @@ watch(inputSearch, (keywordBaru) => {
 
 <aside class="sidebar" :class="{ 'is-open': isSidebarOpen }">
   <div class="sidebar-header">
-    <h2>Menu Peta</h2>
+    <h2>Menu</h2>
     <button class="close-btn" @click="toggleSidebar">&times;</button>
   </div>
   
   <div class="sidebar-content">
-    <p>Selamat datang, Doktah!</p>
+    <p>Meong meong?</p>
     <hr>
-    <div class="menu-item">📍 Filter Booth</div>
-    <div class="menu-item">📊 Statistik Fandom</div>
-    <div class="menu-item">🔗 Link Komunitas</div>
+    <div class="menu-item"> Leaderboard Kontributor</div>
+    <div class="menu-item"> Statistik Karakter</div>
+    <div class="menu-item"> Link Komunitas</div>
+    <div class="menu-item"> About</div>
   </div>
 </aside>
 
