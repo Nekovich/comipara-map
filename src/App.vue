@@ -16,6 +16,7 @@ const inputNama = ref(''); // untuk input nama circle
 const inputFandom = ref([]); // untuk input fandom (array)
 const inputKatalog = ref(''); // untuk menampung link katalog
 const allCirclesCache = ref([]); // Untuk menyimpan data lengkap agar pencarian cepat
+const userCache = ref([]); // Untuk menyimpan daftar user (ID vs Nama)
 const inputSearch = ref(''); // Untuk kotak pencarian global
 const filterInput = ref(''); // Untuk kotak input filter karakter
 const filterTags = ref([]); // Untuk menyimpan tag karakter yang dipilih sebagai filter
@@ -129,23 +130,56 @@ async function fetchDaftarKarakter() {
   }
 }
 
+// --- STATE POP-UP PESAN CUSTOM ---
+const showCustomAlert = ref(false);
+const customAlertMessage = ref('');
+const customAlertTitle = ref('Pemberitahuan');
+const customAlertType = ref('success'); // 'success' atau 'info'
+let resolveAlert; // Buat handle Promise (opsional, biar mirip alert asli)
+
 // AKHIR DAFTAR VARIABEL --- IGNORE ------------------------
 
-async function fetchUserRole(uid) {
-  if (!uid) return;
+async function fetchUserRole() {
+  const { data: { session } } = await supabase.auth.getSession();
+  const user = session?.user;
+
+  if (!user) return;
+
+  // 1. Ambil ID Discord Asli (Provider ID)
+  const realId = user.user_metadata?.provider_id || 
+                 user.identities?.find(i => i.provider === 'discord')?.provider_id;
+
+  // 2. Ambil Nama (Global Name atau Full Name)
+  const fullName = user.user_metadata?.custom_claims?.global_name || 
+                   user.user_metadata?.full_name || 
+                   'User Discord';
+
+  if (!realId) return;
+
   try {
+    // 3. SINKRONISASI (Tanpa menimpa Role)
     const { data, error } = await supabase
-      .from('user') // Tabel kamu 'user'
-      .select('role')
-      .eq('discord_id', uid) // Kolom kamu 'discord_id'
-      .maybeSingle();
+      .from('user')
+      .upsert({ 
+        discord_id: String(realId), 
+        username: fullName
+        // Role TIDAK dimasukkan di sini agar data di DB (Admin) tetap terjaga
+      }, { onConflict: 'discord_id' })
+      .select()
+      .single();
+
+    if (error) throw error;
 
     if (data) {
-      userRole.value = data.role;
-      console.log("Status Role Berhasil Dimuat:", data.role);
+      // KUNCI: Jika di DB masih NULL (karena user baru), tampilkan sebagai 'user'
+      // Jika di DB sudah 'admin', tampilkan 'admin'
+      userRole.value = data.role || 'user'; 
+      console.log("DEBUG: Role kamu saat ini:", userRole.value);
     }
   } catch (err) {
-    console.error("Gagal load role:", err.message);
+    console.error("Gagal sinkron user:", err.message);
+    // Fallback jika database sedang bermasalah agar aplikasi tidak crash
+    userRole.value = 'user'; 
   }
 }
 
@@ -425,14 +459,16 @@ async function submitData() {
   
   // Ambil hanya angka ID saja dari array object selectedKarakter
   const idKarakterSaja = selectedKarakter.value.map(c => c.id);
-
+  const realDiscordId = currentUser.value?.user_metadata?.provider_id || 
+                        currentUser.value?.identities?.[0]?.provider_id || 
+                        currentUser.value?.id; // Fallback jika tidak ketemu
   const updateData = {
     booth_id: selectedBooth.value,
     circle_name: inputNama.value,
     fandom: inputFandom.value.join(', '),
     link_katalog: inputKatalog.value,
-    discord_id: currentUser.value?.id || null, // Gunakan .id yang lebih simpel
-    character_ids: idKarakterSaja, // Sekarang mengirim [1, 5, 10]
+    discord_id: realDiscordId, // Mengirim angka 266217...
+    character_ids: idKarakterSaja,
   };
 
   try {
@@ -442,7 +478,7 @@ async function submitData() {
 
     if (error) throw error;
 
-    alert("Perubahan dikirim! Data akan ditinjau Admin.");
+    tampilkanPesan('Sukses Kirim!', 'Perubahan dikirim! Data akan ditinjau Admin.', 'success');
     showForm.value = false;
     await warnaiPeta();
 
@@ -462,6 +498,30 @@ async function verifikasiData(itemUsulan) {
   loading.value = true;
   
   try {
+    // 1. AMBIL KONTRIBUTOR LAMA (yang sudah terverifikasi di meja itu)
+    const { data: dataLama } = await supabase
+      .from('circles')
+      .select('discord_id')
+      .eq('booth_id', itemUsulan.booth_id)
+      .maybeSingle();
+
+    // 2. AMBIL SEMUA PENGUSUL LAIN (Udin dkk yang masih di antrean/pending)
+    const { data: paraPengusul } = await supabase
+      .from('new_circles')
+      .select('discord_id')
+      .eq('booth_id', itemUsulan.booth_id);
+
+    // 3. PROSES PENGGABUNGAN (Merge & Unique)
+    const listLama = Array.isArray(dataLama?.discord_id) ? dataLama.discord_id : [];
+    
+    // Ambil semua ID dari antrean new_circles (termasuk milik Udin dan Joko)
+    const listBaru = paraPengusul ? paraPengusul.map(p => p.discord_id) : [];
+
+    // Gabung semuanya: (Lama + Semua Antrean Saat Ini)
+    // Set akan otomatis membuang duplikat jika orang yang sama input berkali-kali
+    const gabunganKontributor = [...new Set([...listLama, ...listBaru])].filter(Boolean);
+
+    // 4. UPSERT KE TABEL UTAMA
     const { error: insertError } = await supabase
       .from('circles')
       .upsert({
@@ -470,28 +530,27 @@ async function verifikasiData(itemUsulan) {
         fandom: itemUsulan.fandom,
         link_katalog: itemUsulan.link_katalog,
         character_ids: itemUsulan.character_ids,
+        discord_id: gabunganKontributor, // <--- Udin & Joko masuk sini
         status: 'verified'
-      }, { onConflict: 'booth_id' }); // <--- KUNCI PERBAIKANNYA DI SINI
+      }, { onConflict: 'booth_id' });
 
     if (insertError) throw insertError;
 
-    // 2. HAPUS SEMUA usulan untuk booth ini dari new_circles
-    const { error: deleteError } = await supabase
+    // 5. HAPUS SEMUA ANTREAN UNTUK BOOTH INI
+    // Karena meja sudah terupdate dengan data terbaik (Joko), usulan Udin dkk dihapus
+    await supabase
       .from('new_circles')
       .delete()
       .eq('booth_id', itemUsulan.booth_id);
 
-    if (deleteError) throw deleteError;
+    tampilkanPesan('Verifikasi Berhasil!', 'Semua kontributor telah tercatat.', 'success');
 
-    alert("Data berhasil diperbarui dan diverifikasi!");
-    
-    // 3. REFRESH TAMPILAN
     await warnaiPeta();
     onPetaClick({ target: { id: itemUsulan.booth_id } });
 
   } catch (err) {
     console.error("Gagal verifikasi:", err);
-    alert("Gagal memindah data: " + err.message);
+    alert("Error: " + err.message);
   } finally {
     loading.value = false;
   }
@@ -515,6 +574,50 @@ async function tolakPerubahan(idDatabase) {
     await warnaiPeta(); 
     onPetaClick({ target: { id: itemUsulan.booth_id } });
   loading.value = false;
+}
+
+async function syncUserToDatabase(user) {
+  if (!user) return;
+
+  // AMBIL DISCORD ID ASLI (266217...)
+  const realDiscordId = user.user_metadata?.provider_id || 
+                        user.identities?.[0]?.provider_id;
+  
+  const discordName = user.user_metadata?.full_name || 'User';
+
+  // UPSERT: Masukkan ke tabel 'user'. 
+  // Jika ID sudah ada, dia cuma update nama. Jika belum, dia buat baru.
+  const { data, error } = await supabase
+    .from('user')
+    .upsert({ 
+      discord_id: realDiscordId, // Menggunakan ID Asli Discord
+      nama: discordName,
+      // role: 'user' // Default role bisa diset di database saja
+    }, { onConflict: 'discord_id' });
+
+  if (error) {
+    console.error("Gagal sinkronisasi user:", error.message);
+  } else {
+    console.log("User tersinkronisasi dengan Discord ID asli!");
+  }
+}
+
+async function fetchAllUsers() {
+  const { data } = await supabase.from('user').select('discord_id, username');
+  if (data) userCache.value = data;
+}
+
+// Tambahkan fetchAllUsers() di dalam onMounted kamu agar jalan saat start
+onMounted(async () => {
+  // ... kode lainnya ...
+  await fetchAllUsers(); 
+  // ... kode lainnya ...
+});
+
+function getNameFromId(id) {
+  const found = userCache.value.find(u => u.discord_id === String(id));
+  // Jika nama ketemu, tampilkan. Jika tidak, tampilkan ID-nya saja (sebagai fallback)
+  return found ? found.username : id;
 }
 
 function getNamaKarakterDariIds(ids) {
@@ -650,6 +753,27 @@ function getObjKarakterDariIds(ids) {
   return daftarObj.filter(obj => obj !== undefined);
 }
 
+function getUsernameFromId(id) {
+  if (!id) return 'Unknown';
+  
+  // Kita asumsikan kamu punya cache data user, atau kita gunakan ID itu sendiri 
+  // sebagai fallback jika nama belum sempat di-load.
+  // Tapi untuk saat ini, mari kita buat Link-nya dulu agar fungsional.
+  return id; 
+}
+
+// --- FUNGSI HELPER TAMPILKAN PESAN ---
+function tampilkanPesan(judul, pesan, tipe = 'info') {
+  customAlertTitle.value = judul;
+  customAlertMessage.value = pesan;
+  customAlertType.value = tipe;
+  showCustomAlert.value = true;
+}
+
+function tutupPesan() {
+  showCustomAlert.value = false;
+}
+
 // --- LOGIKA PENCARIAN (SEARCH ENGINE) ---
 watch(inputSearch, (keywordBaru) => {
   const keyword = keywordBaru.toLowerCase();
@@ -754,7 +878,7 @@ watch(inputSearch, (keywordBaru) => {
         </div>
 
         <div class="zoom-controls">
-          <small>Gunakan Scroll Mouse untuk Zoom, Klik Tahan untuk Geser</small>
+          <small>Jika kamu menggunakan HP. disarankan menggunakan tampilan Landscape</small>
         </div>
 
         
@@ -853,6 +977,31 @@ watch(inputSearch, (keywordBaru) => {
               Menunggu Verifikasi
             </div>
           </div>
+
+          <div v-if="infoCircle.discord_id" class="contributor-section">
+            <small class="contributor-label">🤝 Penyumbang Info:</small>
+            <div class="contributor-list">
+              
+              <template v-if="Array.isArray(infoCircle.discord_id)">
+                <a v-for="id in infoCircle.discord_id" 
+                  :key="id" 
+                  :href="'https://discord.com/users/' + id" 
+                  target="_blank" 
+                  class="discord-badge">
+                  <span>{{ getNameFromId(id) }}</span>
+                </a>
+              </template>
+              
+              <a v-else 
+                :href="'https://discord.com/users/' + infoCircle.discord_id" 
+                target="_blank" 
+                class="discord-badge">
+                <span>{{ getNameFromId(infoCircle.discord_id) }}</span>
+              </a>
+
+            </div>
+          </div>
+
           <div v-if="!isAdmin && infoCircle.new_circle_name" 
               style="margin-top: 10px; background: #e3f2fd; padding: 8px; border-radius: 4px; font-size: 0.8em; color: #1976d2;">
             ℹ️ Perubahan data untuk meja ini sedang ditinjau oleh Admin.
@@ -1000,6 +1149,28 @@ watch(inputSearch, (keywordBaru) => {
   </ul>
 </div>
   </div>
+
+<div v-if="showCustomAlert" class="custom-alert-overlay" @click.self="tutupPesan">
+  <div class="custom-alert-content" :class="customAlertType">
+    
+    <div class="alert-header" style="padding: 30px 25px 10px; text-align: center;">
+      <h3 class="alert-title" style="margin: 0; font-size: 1.6rem; font-weight: 800; color: #2c3e50;">
+        {{ customAlertTitle }}
+      </h3>
+    </div>
+
+    <div class="alert-body" style="padding: 10px 25px 25px; text-align: center; color: #4a5568;">
+      <p>{{ customAlertMessage }}</p>
+    </div>
+
+    <div class="alert-footer" style="padding: 15px 25px 25px; display: flex; justify-content: center;">
+      <button @click="tutupPesan" class="btn-alert-ok">OK, Meong</button>
+    </div>
+
+  </div>
+</div>
+
+
 </template>
 
 
@@ -1088,7 +1259,7 @@ body {
 
   /* 4. Map Window dengan margin auto yang kuat */
   .map-window {
-    width: 90% !important; /* Sedikit lebih kecil agar gap kanan-kiri terlihat seimbang */
+    width: 100% !important; /* Sedikit lebih kecil agar gap kanan-kiri terlihat seimbang */
     height: 220px !important;
     margin-left: auto !important;
     margin-right: auto !important;
@@ -1098,7 +1269,7 @@ body {
 
   /* 5. Info Panel (Form) */
   .info-panel {
-    width: 90% !important; /* Lebar harus SAMA dengan map-window */
+    width: 100% !important; /* Lebar harus SAMA dengan map-window */
     margin-left: auto !important;
     margin-right: auto !important;
     padding: 15px !important;
@@ -1111,7 +1282,7 @@ body {
   }
 
   .search-box {
-    width: 92% !important; /* Samakan dengan lebar peta agar simetris */
+    width: 100% !important; /* Samakan dengan lebar peta agar simetris */
     margin: 20px auto !important; /* Beri jarak atas-bawah dan tengahkan */
     padding: 15px !important;
     box-sizing: border-box;
@@ -1632,4 +1803,169 @@ input[type="url"],
   overflow: hidden;
   text-overflow: ellipsis;
 }
+
+.contributor-section {
+  margin-top: 20px;
+  padding-top: 15px;
+  border-top: 1px dashed #ddd;
+  text-align: center;
+}
+
+.contributor-label {
+  display: block;
+  color: #7f8c8d;
+  font-size: 0.75rem;
+  margin-bottom: 10px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+
+.contributor-list {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+}
+
+.discord-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center; /* Tambahkan ini agar teks benar-benar di tengah */
+  background-color: #5865F2; /* Warna khas Discord */
+  color: white !important;
+  padding: 6px 16px; /* Padding lebih seimbang tanpa ikon */
+  border-radius: 20px;
+  text-decoration: none;
+  font-size: 0.85rem;
+  font-weight: bold;
+  transition: all 0.2s ease;
+  border: none;
+}
+
+.discord-badge:hover {
+  background-color: #4752c4;
+  transform: translateY(-2px);
+  box-shadow: 0 4px 10px rgba(88, 101, 242, 0.3);
+}
+
+/* Rapikan bagian teksnya */
+.discord-badge span {
+  color: white !important;
+  display: inline-block;
+  line-height: 1; /* Biar teksnya pas di tengah secara vertikal */
+  padding: 0;
+  margin: 0;
+  max-width: 150px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Pastikan Ikon tidak ikut berantakan */
+.discord-icon {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0; /* Agar ikon tidak gepeng saat teks panjang */
+  fill: white !important;
+  color: white !important;
+}
+
+/* --- CSS POP-UP PESAN CUSTOM --- */
+
+/* Overlay Gelap Latar Belakang */
+.custom-alert-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background-color: rgba(0, 0, 0, 0.6); /* Gelap transparan */
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 20000; /* Pastikan di atas segalanya */
+  backdrop-filter: blur(4px); /* Efek blur modern */
+  transition: all 0.3s ease;
+}
+
+/* Kotak Konten Pop-up */
+.custom-alert-content {
+  background-color: #ffffff;
+  width: 90%;
+  max-width: 400px;
+  border-radius: 16px; /* Sudut tumpul */
+  box-shadow: 0 15px 40px rgba(0, 0, 0, 0.3);
+  overflow: hidden;
+  animation: alertPopIn 0.3s ease-out; /* Animasi muncul */
+  display: flex;
+  flex-direction: column;
+}
+
+/* Animasi Muncul */
+@keyframes alertPopIn {
+  from { opacity: 0; transform: scale(0.8); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+/* Header Pop-up */
+.alert-header {
+  padding: 25px 25px 15px;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 15px;
+}
+
+/* Judul Pesan */
+.alert-title {
+  margin: 0;
+  font-size: 1.5rem;
+  font-weight: 800;
+  letter-spacing: -0.5px;
+}
+
+
+/* Body Pesan */
+.alert-body {
+  padding: 0 25px 25px;
+  text-align: center;
+  color: #4a5568;
+  font-size: 1rem;
+  line-height: 1.5;
+}
+.alert-body p { margin: 0; }
+
+/* Footer & Tombol */
+.alert-footer {
+  padding: 15px 25px 25px;
+  display: flex;
+  justify-content: center;
+}
+
+/* Tombol OK Modern (vibe Arknights sedikit) */
+.btn-alert-ok {
+  background-color: #2c3e50; /* Warna gelap */
+  color: #ffffff;
+  border: none;
+  padding: 12px 30px;
+  border-radius: 8px;
+  font-weight: bold;
+  font-size: 1rem;
+  cursor: pointer;
+  transition: all 0.2s;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+}
+
+.btn-alert-ok:hover {
+  background-color: #1a252f;
+  transform: translateY(-2px);
+  box-shadow: 0 6px 12px rgba(0, 0, 0, 0.2);
+}
+
+.btn-alert-ok:active {
+  transform: translateY(0);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
 </style>
