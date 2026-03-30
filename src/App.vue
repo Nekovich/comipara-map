@@ -16,28 +16,48 @@ const inputNama = ref(''); // untuk input nama circle
 const inputFandom = ref([]); // untuk input fandom (array)
 const inputKatalog = ref(''); // untuk menampung link katalog
 const allCirclesCache = ref([]); // Untuk menyimpan data lengkap agar pencarian cepat
+const userCache = ref([]); // Untuk menyimpan daftar user (ID vs Nama)
 const inputSearch = ref(''); // Untuk kotak pencarian global
 const filterInput = ref(''); // Untuk kotak input filter karakter
 const filterTags = ref([]); // Untuk menyimpan tag karakter yang dipilih sebagai filter
 const filterSaran = computed(() => {
-  // 1. Ambil semua karakter yang BELUM dipilih
-  const belumDipilih = masterKarakter.filter(nama => !filterTags.value.includes(nama));
+  const cari = filterInput.value.trim().toLowerCase();
+  
+  // Ambil karakter yang belum ada di filterTags
+  const belumDipilih = daftarKarakterDB.value.filter(char => 
+    !filterTags.value.some(tag => tag.character_name === char.character_name)
+  );
 
-  // 2. Jika user mengetik sesuatu -> Filter berdasarkan ketikan
-  if (filterInput.value !== '') {
-    return belumDipilih.filter(nama => 
-      nama.toLowerCase().includes(filterInput.value.toLowerCase())
-    );
+  if (cari === '') {
+    return isFilterFocused.value ? belumDipilih : [];
   }
 
-  // 3. BARU: Jika kotak sedang diklik (Fokus) walau kosong -> Tampilkan SEMUA saran
-  if (isFilterFocused.value) {
-    return belumDipilih;
-  }
+  return belumDipilih.filter(char => {
+    const namaChar = char.character_name || "";
+    return namaChar.toLowerCase().includes(cari);
+  });
+});
 
-  // 4. Jika tidak diklik dan kosong -> Sembunyikan
-  return [];
-}); // untuk Saran karakter untuk filter
+const saranKarakter = computed(() => {
+  const cari = inputSearchKarakter.value.trim().toLowerCase();
+  
+  // Jika kotak pencarian kosong, sembunyikan dropdown
+  if (!cari) return [];
+
+  return daftarKarakterDB.value.filter(char => {
+    const namaChar = char.character_name || "";
+    
+    // 1. Cek apakah namanya cocok dengan yang diketik
+    const cocokNama = namaChar.toLowerCase().includes(cari);
+    
+    // 2. KUNCI PERBAIKAN: Cek apakah ID karakter ini BELUM ada di selectedKarakter
+    // Kita pakai .some() untuk mengecek keberadaan ID di dalam daftar terpilih
+    const belumDipilih = !selectedKarakter.value.some(s => s.id === char.id);
+
+    return cocokNama && belumDipilih;
+  });
+});
+
 const lastSelectedElement = ref(null); // untuk menyimpan elemen SVG terakhir yang dipilih
 const isFilterFocused = ref(false); // Penanda apakah kotak sedang diklik
 
@@ -48,22 +68,22 @@ const daftarFandom = [
 ];
 
 // DATA MASTER KARAKTER === isi data karakter apa saja disini
-const masterKarakter = operatorArknights;
+const masterKarakter = ref([]);
 const inputSearchKarakter = ref(''); // Apa yang diketik user (misal: "wisa")
 const selectedKarakter = ref([]);    // Apa yang sudah dipilih (misal: ['Wisadel'])
 
-const saranKarakter = computed(() => {
-  // Jika kotak pencarian kosong, jangan tampilkan apa-apa
-  if (inputSearchKarakter.value === '') {
-    return [];
+async function fetchCharacters() {
+  const { data, error } = await supabase
+    .from('character')
+    .select('character_name')
+    .order('character_name', { ascending: true });
+
+  if (data) {
+    // Ubah array objek menjadi array string nama saja
+    masterKarakter.value = data.map(c => c.character_name);
   }
-  
-  // Filter nama yang COCOK dan BELUM DIPILIH
-  return masterKarakter.filter(nama => 
-    nama.toLowerCase().includes(inputSearchKarakter.value.toLowerCase()) &&
-    !selectedKarakter.value.includes(nama)
-  );
-});
+}
+
 
 // variabel untuk touchscreen (mobile)
 const touchStartX = ref(0);
@@ -84,9 +104,93 @@ async function logout() {
   await supabase.auth.signOut();
   currentUser.value = null;
 }
+ 
+const isSidebarOpen = ref(false); 
+const toggleSidebar = () => {
+  isSidebarOpen.value = !isSidebarOpen.value;
+};
+const userRole = ref('user'); // Default adalah user biasa
+const dataUsulanPending = ref(null);
+const isAdmin = computed(() => {
+  return userRole.value === 'admin';
+});
+const daftarKarakterDB = ref([]); // Penampung data mentah dari DB
 
+async function fetchDaftarKarakter() {
+  try {
+    const { data, error } = await supabase
+      .from('characters') 
+      .select('id, character_name, image_url') // Tambahkan ID di sini
+      .order('character_name', { ascending: true });
+
+    if (error) throw error;
+    daftarKarakterDB.value = data; 
+  } catch (err) {
+    console.error("Gagal load:", err.message);
+  }
+}
+
+// --- STATE POP-UP PESAN CUSTOM ---
+const showCustomAlert = ref(false);
+const customAlertMessage = ref('');
+const customAlertTitle = ref('Pemberitahuan');
+const customAlertType = ref('success'); // 'success' atau 'info'
+let resolveAlert; // Buat handle Promise (opsional, biar mirip alert asli)
+
+const ensureExternalLink = (url) => {
+  if (!url) return '';
+  // Cek apakah sudah diawali http:// atau https://
+  if (url.startsWith('http://') || url.startsWith('https://')) {
+    return url;
+  }
+  // Jika belum, tambahkan https:// di depannya
+  return `https://${url}`;
+};
 // AKHIR DAFTAR VARIABEL --- IGNORE ------------------------
-// AKHIR DAFTAR VARIABEL --- IGNORE ------------------------
+
+async function fetchUserRole() {
+  const { data: { session } } = await supabase.auth.getSession();
+  const user = session?.user;
+
+  if (!user) return;
+
+  // 1. Ambil ID Discord Asli (Provider ID)
+  const realId = user.user_metadata?.provider_id || 
+                 user.identities?.find(i => i.provider === 'discord')?.provider_id;
+
+  // 2. Ambil Nama (Global Name atau Full Name)
+  const fullName = user.user_metadata?.custom_claims?.global_name || 
+                   user.user_metadata?.full_name || 
+                   'User Discord';
+
+  if (!realId) return;
+
+  try {
+    // 3. SINKRONISASI (Tanpa menimpa Role)
+    const { data, error } = await supabase
+      .from('user')
+      .upsert({ 
+        discord_id: String(realId), 
+        username: fullName
+        // Role TIDAK dimasukkan di sini agar data di DB (Admin) tetap terjaga
+      }, { onConflict: 'discord_id' })
+      .select()
+      .single();
+
+    if (error) throw error;
+
+    if (data) {
+      // KUNCI: Jika di DB masih NULL (karena user baru), tampilkan sebagai 'user'
+      // Jika di DB sudah 'admin', tampilkan 'admin'
+      userRole.value = data.role || 'user'; 
+      console.log("DEBUG: Role kamu saat ini:", userRole.value);
+    }
+  } catch (err) {
+    console.error("Gagal sinkron user:", err.message);
+    // Fallback jika database sedang bermasalah agar aplikasi tidak crash
+    userRole.value = 'user'; 
+  }
+}
 
 function onFilterBlur() {
   setTimeout(() => {
@@ -95,120 +199,131 @@ function onFilterBlur() {
 }
 
 // FUNGI WARNAI PETA (LOGIKA DEFAULT)
-/// FUNGSI WARNAI PETA (LOGIKA DEFAULT)
+
+const sedangMewarnai = ref(false);
+
 async function warnaiPeta() {
-  const { data, error } = await supabase
-    .from('circles')
-    .select('*');
+  console.log("Mencoba mewarnai peta...");
+  try {
+    // 1. Ambil data dari kedua tabel secara paralel agar lebih cepat
+    const [resCircles, resNewCircles] = await Promise.all([
+      supabase.from('circles').select('*'),
+      supabase.from('new_circles').select('*')
+    ]);
 
-  if (error) return; 
+    const dataVerified = resCircles.data || [];
+    const dataUsulan = resNewCircles.data || [];
 
-  allCirclesCache.value = data; 
+    // Update cache global (untuk keperluan search/filter)
+    allCirclesCache.value = [...dataVerified, ...dataUsulan];
+    console.log("Data digabung. Jumlah:", allCirclesCache.value.length);
 
-  // --- 1. RESET SEMUA MEJA JADI BIRU MUDA (DEFAULT) ---
-  const semuaMeja = document.querySelectorAll('svg rect, svg path, svg polygon');
-  
-  semuaMeja.forEach(meja => {
-    if (meja.id) {
-      meja.style.fill = '#3498db'; 
-      meja.style.fillOpacity = '0.05'; // Kembali ke pudar awal
-      meja.style.stroke = 'none'; 
-      meja.classList.remove('search-match', 'meja-selected');
-    }
-  });
+    // 2. TAHAP OPTIMASI: Buat "Kamus Cepat" (Map)
+    // Map ini akan menyimpan aturan warna untuk setiap booth_id
+    const statusMap = new Map();
 
-  // --- 2. TIMPA WARNA BERDASARKAN STATUS ---
-  data.forEach(item => {
-    const elemenMeja = document.getElementById(item.booth_id);
+    // Masukkan data verified dulu (Warna Hijau/Abu)
+    dataVerified.forEach(item => {
+      const fandomData = item.fandom || "";
+      const isArknights = fandomData.includes('Arknights');
+      statusMap.set(item.booth_id, {
+        color: isArknights ? '#42b883' : '#9a9a9a',
+        opacity: '0.8',
+        stroke: 'none'
+      });
+    });
+
+    // Masukkan data usulan (Warna Oranye)
+    // Jika ID meja sama, data usulan akan otomatis menimpa data verified di Map ini
+    dataUsulan.forEach(item => {
+      statusMap.set(item.booth_id, {
+        color: '#f7b731',
+        opacity: '0.8',
+        stroke: '#e67e22' // Beri sedikit garis tepi agar menonjol
+      });
+    });
+
+    // 3. TAHAP MEWARNAI (Hanya 1x Loop DOM)
+    const semuaMeja = document.querySelectorAll('svg rect, svg path, svg polygon');
     
-    // LOGIKA BARU: Cek Status, bukan Nama Circle
-    // Jika statusnya null atau kosong, abaikan (tetap biru pudar)
-    if (!item.status || item.status.trim() === '') {
-       return; 
-    }
+    semuaMeja.forEach(meja => {
+      if (!meja.id) return;
 
-    if (elemenMeja) {
-      // LOGIKA BARU: Cek di kolom lama ATAU kolom baru (new_)
-      const listFandom = item.fandoms || [];
-      const listFandomBaru = item.new_fandoms || []; // Ambil dari gudang sementara
-      
-      // Gabungkan keduanya untuk pengecekan warna
-      const gabunganFandom = [...listFandom, ...listFandomBaru];
-      
-      const isMainFandom = gabunganFandom.includes('Arknights') || 
-                           gabunganFandom.includes('Arknights Endfield');
+      // Ambil instruksi warna dari "Kamus" Map kita
+      const instruksi = statusMap.get(meja.id);
 
-      if (!isMainFandom) {
-        // Jika di kedua kolom tidak ada Arknights -> ABU-ABU
-        elemenMeja.style.fill = '#9a9a9a'; 
-        elemenMeja.style.fillOpacity = '0.8'; 
-      
-      } else if (item.status === 'verified') {
-        // ARKNIGHTS + VERIFIED -> HIJAU
-        elemenMeja.style.fill = '#42b883'; 
-        elemenMeja.style.fillOpacity = '0.8'; 
-      
-      } else if (item.status === 'pending') {
-        // ARKNIGHTS + PENDING -> OREN
-        elemenMeja.style.fill = '#f7b731'; 
-        elemenMeja.style.fillOpacity = '0.8'; 
+      if (instruksi) {
+        // Jika meja ada datanya (Verified atau Pending)
+        meja.style.fill = instruksi.color;
+        meja.style.fillOpacity = instruksi.opacity;
+        // Opsional: stroke untuk menandai usulan baru
+        if (instruksi.stroke !== 'none') {
+          meja.style.stroke = instruksi.stroke;
+          meja.style.strokeWidth = '1px';
+        }
+      } else {
+        // Jika meja KOSONG (Default Biru Pudar)
+        meja.style.fill = '#3498db'; 
+        meja.style.fillOpacity = '0.05';
+        meja.style.stroke = 'none';
       }
-    }
-  });
+    });
+
+    console.log("Pewarnaan selesai!");
+
+  } catch (err) {
+    console.error("Crash di warnaiPeta:", err.message);
+  }
 }
 
 // 1. Load Peta SVG dan Inisialisasi Zoom
 onMounted(async () => {
-  // --- CEK SESI LOGIN ---
-  supabase.auth.getSession().then(({ data }) => {
-    currentUser.value = data.session?.user || null;
-  });
-
-  supabase.auth.onAuthStateChange((_event, session) => {
-    currentUser.value = session?.user || null;
-  });
-  // ----------------------
-  console.log("--- MEMULAI PROSES LOAD ---"); // Cek 1
-
+  console.log("--- MEMULAI PROSES LOAD (SINGLE MOUNTED) ---");
+  
   try {
-    const namaFile = '/peta_comipara_utama2.svg'; // Ganti dengan path SVG disini
-    console.log("Mencoba mengambil file:", namaFile); // Cek 2
-    const response = await fetch(namaFile);
-    console.log("Status Server:", response.status); // Cek 3 
-    if (!response.ok) {
-      throw new Error(`Gagal! Status: ${response.status}`);
+    // 1. MUAT DATA MASTER TERLEBIH DAHULU
+    // Kita pakai await agar kode di bawahnya tidak jalan sebelum data karakter siap
+    await fetchDaftarKarakter(); 
+    console.log("1. Daftar Karakter Siap.");
+
+    // 2. CEK SESI LOGIN
+    const { data: sessionData } = await supabase.auth.getSession();
+    const initialUser = sessionData.session?.user || null;
+    currentUser.value = initialUser;
+    
+    if (initialUser) {
+      await fetchUserRole(initialUser.id);
+      console.log("2. Sesi Login & Role Siap.");
     }
 
+    // 3. LOAD PETA SVG
+    const namaFile = '/peta_final.svg';
+    const response = await fetch(namaFile);
+    if (!response.ok) throw new Error(`Gagal load SVG! Status: ${response.status}`);
     const text = await response.text();
-    console.log("Isi File (Huruf awal):", text.substring(0, 100)); // Cek 4 (Harusnya <svg...)
-
     svgContent.value = text;
 
-    await nextTick(); // Tunggu sampai DOM ter-update
+    await nextTick(); // Tunggu DOM SVG merender
 
-    // --- MULAI KODE ZOOM ---
+    // 4. AKTIFKAN ZOOM
     const elementPeta = document.getElementById('peta-scene');
-    
     if (elementPeta) {
       panzoom(elementPeta, {
-        maxZoom: 13,        // Bisa zoom in sampai 5x lipat
-        minZoom: 1,      // Bisa zoom out sampai setengah ukuran
-        bounds: true,      // Agar peta tidak bisa digeser sampai hilang dari layar
-        boundsPadding: 0.5 // Batas kelonggaran pinggir
+        maxZoom: 13,
+        minZoom: 1,
+        bounds: true,
+        boundsPadding: 0.5
       });
-      console.log("Fitur Zoom Aktif!");
+      console.log("3. Fitur Zoom Aktif.");
     }
-    // --- SELESAI KODE ZOOM ---
 
-    // Beri jeda sedikit (100ms) untuk memastikan SVG benar-benar siap
-    setTimeout(() => {
-        warnaiPeta();
-    }, 100);
-
+    // 5. WARNAI PETA (Terakhir)
+    await warnaiPeta();
+    console.log("4. Peta Berhasil Diwarnai.");
 
   } catch (error) {
-    console.error("ERROR FATAL:", error); // Cek Error
-    errorMessage.value = "Error: " + error.message;
+    console.error("ERROR FATAL SAAT MOUNTED:", error);
+    errorMessage.value = "Gagal memuat aplikasi: " + error.message;
   }
 });
 
@@ -244,212 +359,316 @@ function onTouchEnd(event) {
 
 // 2. Klik Meja 
 async function onPetaClick(event) {
-  const target = event.target;
+  // 1. Reset awal: Matikan loading yang mungkin nyangkut & bersihkan error
+  loading.value = false;
+  errorMessage.value = '';
+  
+  let target = event.target;
 
-  // --- LOGIKA 1: DESELECT (KLIK SEMBARANG) ---
-  // Jika yang diklik TIDAK punya ID, atau ID-nya kosong (artinya klik lantai/background)
-  if (!target || !target.id || target.id === "") {
-    
-    // 1. Hapus warna biru dari meja terakhir di klik (jika ada)
-    if (lastSelectedElement.value) {
-      lastSelectedElement.value.classList.remove('meja-selected');
-      lastSelectedElement.value = null; // Lupakan meja tersebut
-    }
-
-    // 2. Kosongkan semua data di panel kanan
-    selectedBooth.value = '';
-    infoCircle.value = null;
-    showForm.value = false;
-    
-    // 3. Reset inputan form
-    inputNama.value = '';
-    inputFandom.value = [];
-    selectedKarakter.value = [];
-    inputSearchKarakter.value = '';
-    inputKatalog.value = '';
-
-    // Berhenti di sini, jangan lanjut ke bawah
-    return; 
+  // Normalisasi target untuk SVG di beberapa browser
+  if (target && !target.classList && target.id) {
+    target = document.getElementById(target.id);
   }
 
-  // --- LOGIKA 2: SELECT (KLIK MEJA) ---
-  // Jika yang diklik adalah meja (ada ID)
+  // LOGIKA 1: DESELECT (KLIK LANTAI / LUAR MEJA)
+  if (!target || !target.id || target.id === "") {
+    if (lastSelectedElement.value) {
+      lastSelectedElement.value.classList.remove('meja-selected');
+      lastSelectedElement.value = null;
+    }
+    selectedBooth.value = '';
+    infoCircle.value = null;
+    dataUsulanPending.value = null;
+    showForm.value = false;
+    return; // Keluar fungsi, loading tetap false
+  }
 
-  // A. Visual Highlight (Warna Biru)
+  // SEKARANG MULAI PROSES LOADING UNTUK MEJA
+  const idMeja = target.id;
+  selectedBooth.value = idMeja;
+  loading.value = true; 
+  
+  // Reset data lama agar tidak muncul data meja sebelumnya saat loading
+  infoCircle.value = null;
+  dataUsulanPending.value = null;
+  showForm.value = false;
+
+  // Fitur Timeout: Jika 5 detik tidak ada respon dari Supabase, hentikan paksa.
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 5000);
+
   try {
+    // Visual Highlight (Pindahkan kelas meja-selected)
     if (lastSelectedElement.value) {
       lastSelectedElement.value.classList.remove('meja-selected');
     }
     target.classList.add('meja-selected');
     lastSelectedElement.value = target;
-  } catch (errVisual) {
-    console.warn("Masalah visual:", errVisual);
-  }
 
-  // B. Ambil Data
-  const idMeja = target.id;
-  selectedBooth.value = idMeja;
-  
-  // Reset state loading
-  infoCircle.value = null;
-  showForm.value = false;
-  loading.value = true; // Nyalakan loading
+    // AMBIL DATA DARI SUPABASE (Dengan sinyal Abort)
+    const [resUtama, resUsulan] = await Promise.all([
+      supabase.from('circles').select('*').eq('booth_id', idMeja).maybeSingle(),
+      supabase.from('new_circles').select('*').eq('booth_id', idMeja).order('created_at', { ascending: false })
+    ]);
 
-  try {
-    const { data, error } = await supabase
-      .from('circles')
-      .select('*')
-      .eq('booth_id', idMeja)
-      .single();
+    // Hapus timeout karena data berhasil diambil
+    clearTimeout(timeoutId);
 
-    if (error && error.code === 'PGRST116') {
-      // Kasus: Meja belum ada di database
+    const dataUtama = resUtama.data;
+    const listUsulan = resUsulan.data;
+
+    if (isAdmin.value) {
+      dataUsulanPending.value = listUsulan || [];
+    }
+
+    if (dataUtama) {
+      // PRIORITAS 1: DATA VERIFIED
+      infoCircle.value = dataUtama;
+      const f = dataUtama.fandom;
+      inputFandom.value = typeof f === 'string' ? f.split(', ') : (Array.isArray(f) ? f : []);
+    } else if (listUsulan && listUsulan.length > 0) {
+      // PRIORITAS 2: DATA USULAN (PENDING)
+      infoCircle.value = { ...listUsulan[0], status: 'pending' };
+      const f = listUsulan[0].fandom;
+      inputFandom.value = typeof f === 'string' ? f.split(', ') : (Array.isArray(f) ? f : []);
+    } else {
+      // PRIORITAS 3: KOSONG TOTAL (Tampilkan Form Input)
       showForm.value = true;
       inputNama.value = '';
       inputFandom.value = [];
       selectedKarakter.value = [];
       inputKatalog.value = '';
-    } else if (data) {
-      // Meja SUDAH ADA datanya
-      infoCircle.value = data; 
-      
-      // Isi variabel input untuk form edit
-      inputNama.value = data.circle_name || '';
-      
-      // Karena sudah JSONB, data pasti datang sebagai Array
-      inputFandom.value = Array.isArray(data.fandoms) ? data.fandoms : [];
-      selectedKarakter.value = Array.isArray(data.characters) ? data.characters : [];
-      
-      inputKatalog.value = data.link_katalog || '';
     }
+
   } catch (err) {
-    console.error("Error:", err);
+    // Jika dibatalkan oleh timeout atau koneksi putus
+    if (err.name === 'AbortError') {
+      console.error("Request Timeout: Koneksi Supabase lambat.");
+      errorMessage.value = "Koneksi lambat, coba klik lagi.";
+    } else {
+      console.error("Error Detail di onPetaClick:", err);
+      errorMessage.value = "Gagal memuat data meja.";
+    }
   } finally {
-    loading.value = false; // Matikan loading
+    // KUNCI UTAMA: Apapun yang terjadi (Error, Timeout, atau Berhasil), 
+    // loading HARUS dimatikan agar tulisan "Sedang memuat" hilang.
+    loading.value = false;
+    clearTimeout(timeoutId); // Pastikan timeout dibersihkan
   }
 }
 
-// 3. Submit Data Form
 // 3. Submit Data Form (VERSI PERBAIKAN)
 async function submitData() {
   if (!inputNama.value) {
-    alert("Mohon isi nama circle");
+    alert("Nama circle wajib diisi!");
     return;
   }
 
   loading.value = true;
   
-  // LOGIKA BARU: Simpan perubahan ke kolom 'new_' 
-  // agar data asli (verified) tidak hilang
+  // Ambil hanya angka ID saja dari array object selectedKarakter
+  const idKarakterSaja = selectedKarakter.value.map(c => c.id);
+  const realDiscordId = currentUser.value?.user_metadata?.provider_id || 
+                        currentUser.value?.identities?.[0]?.provider_id || 
+                        currentUser.value?.id; // Fallback jika tidak ketemu
   const updateData = {
     booth_id: selectedBooth.value,
-    // Data cadangan untuk verifikasi
-    new_circle_name: inputNama.value,
-    new_fandoms: inputFandom.value,
-    new_characters: selectedKarakter.value,
-    new_link_katalog: inputKatalog.value,
-    
-    // Identitas pengedit
-    contributor_name: currentUser.value?.user_metadata?.custom_claims?.global_name || currentUser.value?.user_metadata?.full_name || 'Guest',
-    contributor_uid: currentUser.value?.identities?.find(i => i.provider === 'discord')?.identity_data?.sub || null,
-    
-    status: 'pending' // Tetap pending agar kamu tahu ada yang minta update
+    circle_name: inputNama.value,
+    fandom: inputFandom.value.join(', '),
+    link_katalog: inputKatalog.value,
+    discord_id: realDiscordId, // Mengirim angka 266217...
+    character_ids: idKarakterSaja,
   };
 
-  const { error } = await supabase
-    .from('circles')
-    .upsert(updateData, { onConflict: 'booth_id' });
+  try {
+    const { error } = await supabase
+      .from('new_circles')
+      .insert(updateData);
 
-  loading.value = false;
+    if (error) throw error;
 
-  if (error) {
-    alert("Gagal: " + error.message);
-  } else {
-    alert("Perubahan dikirim! Data lama akan tetap tampil sampai Admin menyetujui.");
+    tampilkanPesan('Sukses Kirim!', 'Perubahan dikirim! Data akan ditinjau Admin.', 'success');
     showForm.value = false;
     await warnaiPeta();
+
+    setTimeout(() => {
+      onPetaClick({ target: { id: selectedBooth.value } });
+    }, 300);
+
+  } catch (err) {
+    alert("Gagal mengirim data: " + err.message);
+  } finally {
+    loading.value = false;
   }
 }
-// --- FITUR KHUSUS ADMIN ---
-const ADMIN_UID = '5fcc0983-f75f-4b70-9283-0796a7065515';
 
-async function verifikasiData(idMeja) {
+
+async function verifikasiData(itemUsulan) {
   loading.value = true;
   
-  // Ambil data terbaru dari state infoCircle
-  const item = infoCircle.value;
-  let dataUpdate = { status: 'verified' };
+  try {
+    // 1. AMBIL KONTRIBUTOR LAMA (yang sudah terverifikasi di meja itu)
+    const { data: dataLama } = await supabase
+      .from('circles')
+      .select('discord_id')
+      .eq('booth_id', itemUsulan.booth_id)
+      .maybeSingle();
 
-  // Jika ada data baru (update), pindahkan ke kolom utama dan hapus kolom new_
-  if (item.new_circle_name) {
-    dataUpdate.circle_name = item.new_circle_name;
-    dataUpdate.fandoms = item.new_fandoms;
-    dataUpdate.characters = item.new_characters;
-    dataUpdate.link_katalog = item.new_link_katalog;
+    // 2. AMBIL SEMUA PENGUSUL LAIN (Udin dkk yang masih di antrean/pending)
+    const { data: paraPengusul } = await supabase
+      .from('new_circles')
+      .select('discord_id')
+      .eq('booth_id', itemUsulan.booth_id);
+
+    // 3. PROSES PENGGABUNGAN (Merge & Unique)
+    const listLama = Array.isArray(dataLama?.discord_id) ? dataLama.discord_id : [];
     
-    // Kosongkan kolom draft lagi
-    dataUpdate.new_circle_name = null;
-    dataUpdate.new_fandoms = null;
-    dataUpdate.new_characters = null;
-    dataUpdate.new_link_katalog = null;
-  }
+    // Ambil semua ID dari antrean new_circles (termasuk milik Udin dan Joko)
+    const listBaru = paraPengusul ? paraPengusul.map(p => p.discord_id) : [];
 
-  const { error } = await supabase
-    .from('circles')
-    .update(dataUpdate)
-    .eq('booth_id', idMeja);
+    // Gabung semuanya: (Lama + Semua Antrean Saat Ini)
+    // Set akan otomatis membuang duplikat jika orang yang sama input berkali-kali
+    const gabunganKontributor = [...new Set([...listLama, ...listBaru])].filter(Boolean);
 
-  if (!error) {
-    alert("Data berhasil diperbarui ke publik!");
-    warnaiPeta();
-    const fakeEvent = { target: { id: idMeja } };
-    onPetaClick(fakeEvent);
+    // 4. UPSERT KE TABEL UTAMA
+    const { error: insertError } = await supabase
+      .from('circles')
+      .upsert({
+        booth_id: itemUsulan.booth_id,
+        circle_name: itemUsulan.circle_name,
+        fandom: itemUsulan.fandom,
+        link_katalog: itemUsulan.link_katalog,
+        character_ids: itemUsulan.character_ids,
+        discord_id: gabunganKontributor, // <--- Udin & Joko masuk sini
+        status: 'verified'
+      }, { onConflict: 'booth_id' });
+
+    if (insertError) throw insertError;
+
+    // 5. HAPUS SEMUA ANTREAN UNTUK BOOTH INI
+    // Karena meja sudah terupdate dengan data terbaik (Joko), usulan Udin dkk dihapus
+    await supabase
+      .from('new_circles')
+      .delete()
+      .eq('booth_id', itemUsulan.booth_id);
+
+    tampilkanPesan('Verifikasi Berhasil!', 'Semua kontributor telah tercatat.', 'success');
+
+    await warnaiPeta();
+    onPetaClick({ target: { id: itemUsulan.booth_id } });
+
+  } catch (err) {
+    console.error("Gagal verifikasi:", err);
+    alert("Error: " + err.message);
+  } finally {
+    loading.value = false;
   }
-  loading.value = false;
 }
 
-async function tolakPerubahan(idMeja) {
-  if (!confirm("Apakah Anda yakin ingin menolak dan menghapus usulan perubahan ini?")) return;
-
+async function tolakPerubahan(idDatabase) {
+  if (!confirm("Hapus usulan ini?")) return;
   loading.value = true;
   
-  // Kita hanya menghapus isi kolom "new_" (draft), data utama tetap aman
-  const dataUpdate = {
-    new_circle_name: null,
-    new_fandoms: null,
-    new_characters: null,
-    new_link_katalog: null
-  };
-
   const { error } = await supabase
-    .from('circles')
-    .update(dataUpdate)
-    .eq('booth_id', idMeja);
+    .from('new_circles')
+    .delete()
+    .eq('booth_id', itemUsulan.booth_id);
 
-  if (!error) {
-    alert("Usulan perubahan berhasil dihapus!");
-    // Refresh info panel agar kotak kuning hilang
-    const fakeEvent = { target: { id: idMeja } };
-    onPetaClick(fakeEvent);
-  } else {
-    alert("Gagal menghapus usulan: " + error.message);
-  }
+  if (deleteError) {
+      console.error("Gagal menghapus data usulan:", deleteError.message);
+      alert("Data masuk ke tabel Utama, tapi gagal menghapus usulan lama.");
+    } else {
+      alert("Data Berhasil Diverifikasi! Meja sekarang resmi.");
+    }
+    await warnaiPeta(); 
+    onPetaClick({ target: { id: itemUsulan.booth_id } });
   loading.value = false;
 }
+
+async function syncUserToDatabase(user) {
+  if (!user) return;
+
+  // AMBIL DISCORD ID ASLI (266217...)
+  const realDiscordId = user.user_metadata?.provider_id || 
+                        user.identities?.[0]?.provider_id;
+  
+  const discordName = user.user_metadata?.full_name || 'User';
+
+  // UPSERT: Masukkan ke tabel 'user'. 
+  // Jika ID sudah ada, dia cuma update nama. Jika belum, dia buat baru.
+  const { data, error } = await supabase
+    .from('user')
+    .upsert({ 
+      discord_id: realDiscordId, // Menggunakan ID Asli Discord
+      nama: discordName,
+      // role: 'user' // Default role bisa diset di database saja
+    }, { onConflict: 'discord_id' });
+
+  if (error) {
+    console.error("Gagal sinkronisasi user:", error.message);
+  } else {
+    console.log("User tersinkronisasi dengan Discord ID asli!");
+  }
+}
+
+async function fetchAllUsers() {
+  const { data } = await supabase.from('user').select('discord_id, username');
+  if (data) userCache.value = data;
+}
+
+// Tambahkan fetchAllUsers() di dalam onMounted kamu agar jalan saat start
+onMounted(async () => {
+  // ... kode lainnya ...
+  await fetchAllUsers(); 
+  // ... kode lainnya ...
+});
+
+function getNameFromId(id) {
+  const found = userCache.value.find(u => u.discord_id === String(id));
+  // Jika nama ketemu, tampilkan. Jika tidak, tampilkan ID-nya saja (sebagai fallback)
+  return found ? found.username : id;
+}
+
+function getNamaKarakterDariIds(ids) {
+  if (!ids || !Array.isArray(ids)) return '-';
+  
+  // Cari nama di daftarKarakterDB berdasarkan ID yang ada di database
+  const daftarNama = ids.map(id => {
+    const found = daftarKarakterDB.value.find(char => char.id === id);
+    return found ? found.character_name : 'Unknown';
+  });
+
+  return daftarNama.join(', ');
+}
+
 
 // 4. FUNGSI TAMBAH & HAPUS karakter di form (filter)
-function tambahKarakter(nama) {
-  selectedKarakter.value.push(nama); // Masukkan ke keranjang
-  inputSearchKarakter.value = '';    // Reset kotak ketik
+function tambahKarakter(objKarakter) {
+  // 1. Cek apakah ID karakter ini sudah ada di dalam daftar terpilih
+  const sudahAda = selectedKarakter.value.some(item => item.id === objKarakter.id);
+
+  if (!sudahAda) {
+    // 2. Jika belum ada, masukkan SELURUH object-nya ke array
+    selectedKarakter.value.push(objKarakter);
+    console.log("Karakter ditambahkan:", objKarakter.character_name);
+  } else {
+    console.warn("Karakter sudah dipilih sebelumnya.");
+  }
+
+  // 3. Reset kolom input pencarian agar kosong kembali
+  inputSearchKarakter.value = ''; 
 }
 
-function hapusKarakter(nama) {
-  selectedKarakter.value = selectedKarakter.value.filter(item => item !== nama);
+function hapusKarakter(objKarakter) {
+  selectedKarakter.value = selectedKarakter.value.filter(item => item.id !== objKarakter.id);
 }
-function addFilterTag(nama) {
-  filterTags.value.push(nama);
-  filterInput.value = ''; // Reset ketikan
-  jalankanFilter();       // Langsung update peta
+function addFilterTag(karakterObj) {
+  // Cek duplikat berdasarkan ID
+  if (!filterTags.value.some(t => t.id === karakterObj.id)) {
+    filterTags.value.push(karakterObj);
+  }
+  filterInput.value = '';
+  jalankanFilter(); // Jalankan filter warna
 }
 function removeFilterTag(nama) {
   filterTags.value = filterTags.value.filter(tag => tag !== nama);
@@ -457,34 +676,111 @@ function removeFilterTag(nama) {
 }
 // LOGIKA FILTER SPOTLIGHT (VERSI BERSIH)
 function jalankanFilter() {
-  const tags = filterTags.value;
+  const tags = filterTags.value; // Berisi array object {id, character_name}
 
   if (tags.length === 0) {
     warnaiPeta();
     return;
   }
 
+  // Ambil daftar ID yang sedang difilter (ubah ke Number agar pasti cocok)
+  const filterIds = tags.map(t => Number(t.id));
+
   allCirclesCache.value.forEach(item => {
     const elemenMeja = document.getElementById(item.booth_id);
     if (!elemenMeja) return;
 
-    const isMatch = item.characters?.some(char => tags.includes(char));
+    // --- LOGIKA BARU (Cek Berdasarkan ID) ---
+    // Kita cek di kolom 'character_ids' (database baru)
+    const boothCharIds = item.character_ids || [];
+    const isMatch = boothCharIds.some(id => filterIds.includes(Number(id)));
 
     if (isMatch) {
-      // --- MATCH ---
+      // --- MATCH (Warna sesuai kode lawasmu) ---
       if (item.status === 'verified') {
-        elemenMeja.style.fill = '#42b883'; 
+        elemenMeja.style.fill = '#42b883'; // Hijau Verified
       } else {
-        elemenMeja.style.fill = '#f7b731'; 
+        elemenMeja.style.fill = '#f7b731'; // Oranye Pending
       }
-      elemenMeja.style.fillOpacity = '0.8'; 
+      elemenMeja.style.fillOpacity = '0.8';
+      elemenMeja.style.stroke = 'none'; // Sesuai style lawas
       
     } else {
-      // --- TIDAK MATCH ---
+      // --- TIDAK MATCH (Abu-abu sesuai kode lawasmu) ---
       elemenMeja.style.fill = '#9a9a9a'; 
       elemenMeja.style.fillOpacity = '0.8'; 
+      elemenMeja.style.stroke = 'none';
     }
   });
+}
+
+function siapkanEditData() {
+  if (!infoCircle.value) return;
+
+  // 1. Isi Nama Circle
+  inputNama.value = infoCircle.value.circle_name || '';
+
+  // 2. Isi Fandom (Pastikan formatnya array)
+  const f = infoCircle.value.fandom;
+  inputFandom.value = typeof f === 'string' ? f.split(', ') : (Array.isArray(f) ? f : []);
+
+  // 3. Isi Link Katalog
+  inputKatalog.value = infoCircle.value.link_katalog || '';
+
+  // 4. Isi Karakter (Mapping ID ke Object agar tag muncul)
+  if (infoCircle.value.character_ids && Array.isArray(infoCircle.value.character_ids)) {
+    selectedKarakter.value = infoCircle.value.character_ids.map(id => {
+      return daftarKarakterDB.value.find(char => char.id == id);
+    }).filter(item => item !== undefined); // Hapus jika ada ID yang tidak ditemukan
+  } else {
+    selectedKarakter.value = [];
+  }
+
+  // 5. Tampilkan Form
+  showForm.value = true;
+}
+
+function batalEdit() {
+  showForm.value = false;
+  // Opsional: reset isian jika ingin benar-benar bersih
+  inputNama.value = '';
+  inputFandom.value = [];
+  selectedKarakter.value = [];
+  inputKatalog.value = '';
+}
+
+function getObjKarakterDariIds(ids) {
+  if (!ids || !ids.length) return [];
+  
+  // Ambil object karakter lengkap dari database master
+  const daftarObj = ids.map(id => {
+    // Gunakan == agar fleksibel BigInt/Number
+    return daftarKarakterDB.value.find(char => char.id == id);
+  });
+
+  // Filter agar tidak ada yang undefined (jika ID tidak ditemukan)
+  return daftarObj.filter(obj => obj !== undefined);
+}
+
+function getUsernameFromId(id) {
+  if (!id) return 'Unknown';
+  
+  // Kita asumsikan kamu punya cache data user, atau kita gunakan ID itu sendiri 
+  // sebagai fallback jika nama belum sempat di-load.
+  // Tapi untuk saat ini, mari kita buat Link-nya dulu agar fungsional.
+  return id; 
+}
+
+// --- FUNGSI HELPER TAMPILKAN PESAN ---
+function tampilkanPesan(judul, pesan, tipe = 'info') {
+  customAlertTitle.value = judul;
+  customAlertMessage.value = pesan;
+  customAlertType.value = tipe;
+  showCustomAlert.value = true;
+}
+
+function tutupPesan() {
+  showCustomAlert.value = false;
 }
 
 // --- LOGIKA PENCARIAN (SEARCH ENGINE) ---
@@ -503,7 +799,7 @@ watch(inputSearch, (keywordBaru) => {
     const cekNama = item.circle_name && item.circle_name.toLowerCase().includes(keyword);
     
     // Cek Fandom (Array)
-    const cekFandom = item.fandoms && item.fandoms.some(f => f.toLowerCase().includes(keyword));
+    const cekFandom = item.fandom && item.fandom.some(f => f.toLowerCase().includes(keyword));
     
     // Cek Karakter (Array)
     const cekChar = item.characters && item.characters.some(c => c.toLowerCase().includes(keyword));
@@ -538,6 +834,32 @@ watch(inputSearch, (keywordBaru) => {
 </script>
 
 <template>
+  <button class="hamburger-btn" @click="toggleSidebar" aria-label="Menu">
+  <span></span>
+  <span></span>
+  <span></span>
+</button>
+
+<div class="sidebar-overlay" v-if="isSidebarOpen" @click="toggleSidebar"></div>
+
+<aside class="sidebar" :class="{ 'is-open': isSidebarOpen }">
+  <div class="sidebar-header">
+    <h2>Menu</h2>
+    <button class="close-btn" @click="toggleSidebar">&times;</button>
+  </div>
+  
+  <div class="sidebar-content">
+    <p>dibuat oleh: Nekovich dari Arknights Indonesia (AKID)</p>
+    <hr>
+    <div class="menu-item"> Leaderboard Kontributor</div>
+    <div class="menu-item"> Statistik Karakter</div>
+    <a href="https://linktr.ee/ArknightsIndonesiaAKID" target="_blank" class="menu-item link-no-style">
+    Link Komunitas
+    </a>
+    <div class="menu-item"> About</div>
+  </div>
+</aside>
+
   <div class="container">
     <h1>Peta persebaran merch Arknights di Comipara</h1>
 
@@ -558,7 +880,7 @@ watch(inputSearch, (keywordBaru) => {
         </div>
 
         <div class="zoom-controls">
-          <small>Gunakan Scroll Mouse untuk Zoom, Klik Tahan untuk Geser</small>
+          <small>Jika kamu menggunakan HP. disarankan menggunakan tampilan Landscape</small>
         </div>
 
         
@@ -575,36 +897,75 @@ watch(inputSearch, (keywordBaru) => {
         </div>
 
         <div v-else-if="infoCircle" class="card">
-          <div v-if="currentUser?.id === ADMIN_UID && infoCircle.new_circle_name" 
-            style="background: #fff3cd; border: 1px solid #ffeeba; padding: 10px; border-radius: 8px; margin-bottom: 15px; font-size: 0.85em;">
-          <strong style="color: #856404;">⚠️ Ada Usulan Perubahan Data:</strong>
-          <ul style="margin: 5px 0; padding-left: 20px;">
-            <li>Nama Baru: {{ infoCircle.new_circle_name }}</li>
-            <li>Fandom: {{ infoCircle.new_fandoms?.join(', ') }}</li>
-          </ul>
-          <button @click="verifikasiData(infoCircle.booth_id)" 
-                  style="background: #ffc107; border: none; padding: 5px 10px; border-radius: 4px; cursor: pointer; font-weight: bold; width: 100%;">
-            Terima & Terapkan Perubahan
-          </button>
-          <button @click="tolakPerubahan(infoCircle.booth_id)" 
-            style="flex: 1; background: #eb4d4b; border: none; padding: 8px; border-radius: 4px; cursor: pointer; font-weight: bold; color: white;">
-            Tolak
-          </button>
+          <div v-if="isAdmin && dataUsulanPending && Array.isArray(dataUsulanPending)" 
+              style="background: #fff3cd; border: 1px solid #ffeeba; padding: 10px; border-radius: 8px; margin-bottom: 15px;">
+            <strong style="color: #856404;">⚠️ Ada {{ dataUsulanPending.length }} Usulan di Meja Ini:</strong>
+            
+            <div v-for="(usulan, index) in dataUsulanPending" :key="usulan.id" 
+                style="background: white; margin-top: 10px; padding: 10px; border-radius: 6px; border: 1px dashed #ffc107;">
+              <small style="color: #666;">Usulan #{{ dataUsulanPending.length - index }} ({{ new Date(usulan.created_at).toLocaleTimeString() }})</small>
+              <p style="margin: 5px 0;"><strong>{{ usulan.circle_name }}</strong></p>
+              <small style="display: block; margin-top: 5px;">
+                <strong>Fandom:</strong> {{ usulan.fandom }}
+              </small>
+              
+              <small style="display: block; margin-top: 5px;">
+                <strong>Karakter:</strong>
+                <span>{{ getNamaKarakterDariIds(infoCircle.character_ids) }}</span>
+              </small>
 
-        </div>
+              <small style="display: block; margin-top: 5px;">
+                <strong>Katalog:</strong> 
+                <a v-if="usulan.link_katalog" :href="usulan.link_katalog" target="_blank" style="color: #3498db;">Lihat Katalog ↗</a>
+                <span v-else style="color: #999;">(Kosong)</span>
+              </small>
+
+              <div style="display: flex; gap: 5px; margin-top: 8px;">
+                <button @click="verifikasiData(usulan)" style="flex: 2; background: #2ecc71; color: white; border: none; padding: 5px; border-radius: 4px; cursor: pointer; font-size: 0.8em; font-weight: bold;">
+                  Terima Yang Ini
+                </button>
+                <button @click="tolakPerubahan(usulan.id)" style="flex: 1; background: #eb4d4b; color: white; border: none; padding: 5px; border-radius: 4px; cursor: pointer; font-size: 0.8em;">
+                  Hapus
+                </button>
+              </div>
+            </div>
+          </div>
           <h3>Meja: {{ infoCircle.booth_id }}</h3>
           <p><strong>Nama:</strong> {{ infoCircle.circle_name }}</p>
           <p>
             <strong>Fandom:</strong>
-            <span>{{ Array.isArray(infoCircle.fandoms) ? infoCircle.fandoms.join(', ') : '-' }}</span>
+            <span>
+              {{ 
+                Array.isArray(infoCircle.fandom) 
+                ? infoCircle.fandom.join(', ') 
+                : (infoCircle.fandom || '-') 
+              }}
+            </span>
           </p>
-          <p>
-            <strong>Karakter:</strong> 
-            <span>{{ Array.isArray(infoCircle.characters) ? infoCircle.characters.join(', ') : '-' }}</span>
+          <div class="character-preview-section" v-if="getObjKarakterDariIds(infoCircle.character_ids).length > 0">
+            <strong>Karakter yang Dijual:</strong>
+            
+            <div class="portrait-container">
+              <div v-for="char in getObjKarakterDariIds(infoCircle.character_ids)" 
+                  :key="char.id" 
+                  class="portrait-card"
+                  :title="char.character_name"> <img :src="char.image_url" 
+                    :alt="char.character_name" 
+                    class="portrait-img"
+                    onerror="this.src='/src/assets/avatar_placeholder.png';"> <span class="portrait-name">{{ char.character_name }}</span>
+              </div>
+            </div>
+          </div>
+
+          <p v-else>
+            <strong>Karakter:</strong> <span style="color: grey;">-</span>
           </p>
           <p>
             <strong>Katalog:</strong> 
-            <a v-if="infoCircle.link_katalog" :href="infoCircle.link_katalog" target="_blank" style="color: #3498db; text-decoration: none; font-weight: bold;">
+            <a v-if="infoCircle.link_katalog" 
+              :href="ensureExternalLink(infoCircle.link_katalog)" 
+              target="_blank" 
+              style="color: #3498db; text-decoration: none; font-weight: bold;">
               Buka Katalog ↗
             </a>
             <span v-else style="color: grey; font-style: italic;">
@@ -612,10 +973,41 @@ watch(inputSearch, (keywordBaru) => {
             </span>
           </p>
           
-          <div :class="['status-badge', infoCircle.status]">
-            {{ infoCircle.status === 'verified' ? 'Terverifikasi' : 'Menunggu Verifikasi' }}
+          <div style="margin-top: 15px;">
+            <div v-if="infoCircle.status === 'verified'" class="status-badge verified">
+              Terverifikasi
+            </div>
+            
+            <div v-else class="status-badge pending">
+              Menunggu Verifikasi
+            </div>
           </div>
-          <div v-if="currentUser?.id !== ADMIN_UID && infoCircle.new_circle_name" 
+
+          <div v-if="infoCircle.discord_id" class="contributor-section">
+            <small class="contributor-label">🤝 Penyumbang Info:</small>
+            <div class="contributor-list">
+              
+              <template v-if="Array.isArray(infoCircle.discord_id)">
+                <a v-for="id in infoCircle.discord_id" 
+                  :key="id" 
+                  :href="'https://discord.com/users/' + id" 
+                  target="_blank" 
+                  class="discord-badge">
+                  <span>{{ getNameFromId(id) }}</span>
+                </a>
+              </template>
+              
+              <a v-else 
+                :href="'https://discord.com/users/' + infoCircle.discord_id" 
+                target="_blank" 
+                class="discord-badge">
+                <span>{{ getNameFromId(infoCircle.discord_id) }}</span>
+              </a>
+
+            </div>
+          </div>
+
+          <div v-if="!isAdmin && infoCircle.new_circle_name" 
               style="margin-top: 10px; background: #e3f2fd; padding: 8px; border-radius: 4px; font-size: 0.8em; color: #1976d2;">
             ℹ️ Perubahan data untuk meja ini sedang ditinjau oleh Admin.
           </div>
@@ -640,7 +1032,7 @@ watch(inputSearch, (keywordBaru) => {
           
           <div style="margin-top: 20px; border-top: 1px solid #eee; padding-top: 10px;">
   
-            <div v-if="currentUser?.id === ADMIN_UID && infoCircle.status !== 'verified'" style="margin-bottom: 10px;">
+            <div v-if="!isAdmin && infoCircle.new_circle_name" style="margin-bottom: 10px;">
               <button @click="verifikasiData(infoCircle.booth_id)" 
                       style="background: #2ecc71; color: white; border: none; padding: 8px; border-radius: 4px; width: 100%; font-weight: bold; cursor: pointer;">
                 ✅ Verifikasi Meja Ini (Admin)
@@ -648,7 +1040,8 @@ watch(inputSearch, (keywordBaru) => {
             </div>
 
             <span style="color: grey; font-size: 0.75em;">Data salah? </span>
-            <button @click="showForm = true" class="btn-small">Edit Data</button>
+            <button @click="siapkanEditData" class="btn-small">Edit Data</button>
+
           </div>
         </div>
 
@@ -702,18 +1095,24 @@ watch(inputSearch, (keywordBaru) => {
 
             <div class="form-group" style="position: relative;">
               <label>Karakter (Ketik untuk cari):</label>
-              <div style="display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 5px;">
-                <span v-for="char in selectedKarakter" :key="char" style="background: #e0f2f1; color: #00695c; padding: 2px 8px; border-radius: 12px; font-size: 0.9em; display: flex; align-items: center; gap: 5px;">
-                  {{ char }}
-                  <button @click="hapusKarakter(char)" style="background:none; border:none; cursor:pointer; color: #d32f2f; font-weight:bold;">&times;</button>
+              
+              <div class="tags-container">
+                <span v-for="char in selectedKarakter" :key="char.id" class="tag-karakter">
+                  {{ char.character_name }} <button @click="hapusKarakter(char)" title="Hapus karakter">&times;</button>
                 </span>
               </div>
 
-              <input type="text" v-model="inputSearchKarakter" placeholder="Contoh: Amiya, Doktah, Wisadel..." style="width: 100%; padding: 8px; box-sizing: border-box;">
+              <input 
+                type="text" 
+                v-model="inputSearchKarakter" 
+                placeholder="Ketik nama operator..." 
+                class="input-form"
+              >
 
-              <ul v-if="saranKarakter.length > 0" style="position: absolute; z-index: 10; background: white; width: 100%; border: 1px solid #ddd; list-style: none; padding: 0; margin: 0; max-height: 150px; overflow-y: auto; box-shadow: 0 4px 6px rgba(0,0,0,0.1);">
-                <li v-for="saran in saranKarakter" :key="saran" @click="tambahKarakter(saran)" style="padding: 8px; cursor: pointer; border-bottom: 1px solid #eee;" onmouseover="this.style.background='#f5f5f5'" onmouseout="this.style.background='white'">
-                  {{ saran }}
+              <ul v-if="saranKarakter.length > 0" class="dropdown-sugesti">
+                <li v-for="saran in saranKarakter" :key="saran.character_name" @click="tambahKarakter(saran)" style="display: flex; align-items: center; gap: 10px;">
+                  <img :src="saran.image_url" style="width: 25px; height: 25px; border-radius: 50%; object-fit: cover;" onerror="this.style.display='none'">
+                  {{ saran.character_name }}
                 </li>
               </ul>
             </div>
@@ -728,137 +1127,55 @@ watch(inputSearch, (keywordBaru) => {
 
       </div>
     </div>
-    <div class="search-box" style="
-      background: white; 
-      padding: 15px; 
-      border-radius: 8px; 
-      border: 1px solid #ddd; 
-      margin-top: 20px;
-      margin-bottom: 300px; 
-      position: relative;
-      box-shadow: 0 -2px 10px rgba(0,0,0,0.05);
-      ">
-          <label style="font-weight: bold; display: block; margin-bottom: 5px;">Filter Karakter:</label>
+    <div class="search-box" style="background: white; padding: 15px; border-radius: 8px; border: 1px solid #ddd; margin-top: 20px; margin-bottom: 300px; position: relative; box-shadow: 0 -2px 10px rgba(0,0,0,0.05);">
+  <label style="font-weight: bold; display: block; margin-bottom: 5px;">Filter Karakter:</label>
 
-          <div style="display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 5px;">
-            <span 
-                v-for="tag in filterTags" 
-                :key="tag"
-                style="
-                  background: #3498db; 
-                  color: white; 
-                  padding: 4px 10px 4px 4px; /* Padding kiri lebih kecil biar gambar nempel ujung */
-                  border-radius: 20px;       /* Lebih bulat biar seperti kapsul */
-                  font-size: 0.9em; 
-                  display: flex; 
-                  align-items: center; 
-                  gap: 6px; 
-                  font-weight: bold;
-                  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-                "
-            >
-                <img 
-                  :src="`/characters/${tag}.png`" 
-                  alt=""
-                  style="
-                    width: 24px; 
-                    height: 24px; 
-                    border-radius: 50%; /* Bulat sempurna */
-                    object-fit: cover; 
-                    background: white; 
-                    border: 2px solid white; /* Bingkai putih tipis biar rapi */
-                  "
-                  onerror="this.style.display='none'"
-                />
-              {{ tag }}
-              <button 
-                  @click="removeFilterTag(tag)" 
-                  style="
-                    background: none; 
-                    border: none; 
-                    color: white; 
-                    cursor: pointer; 
-                    font-weight: bold; 
-                    font-size: 1.1em;
-                    margin-left: 2px;
-                    opacity: 0.8;
-                  "
-                  onmouseover="this.style.opacity='1'"
-                  onmouseout="this.style.opacity='0.8'"
-                >
-                  &times;
-                </button>
-            </span>
-          </div>
-
-          <input 
-            type="text" 
-            v-model="filterInput" 
-            placeholder="Ketik nama karakter (misal: Amiya)..." 
-            style="width: 100%; padding: 8px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box;"
-            @focus="isFilterFocused = true" 
-            @blur="onFilterBlur"
-          >
-
-            <ul v-if="filterSaran.length > 0" style="
-              position: absolute; top: 100%; left: 0; right: 0; z-index: 100; 
-              background: white; border: 1px solid #ddd; border-radius: 0 0 8px 8px;
-              box-shadow: 0 4px 10px rgba(0,0,0,0.1);
-              max-height: 500px; /* Tinggi maksimal daftar saran */
-              overflow-y: auto;
-              display: grid; grid-template-columns: repeat(auto-fill, minmax(90px, 1fr)); 
-              gap: 8px; padding: 10px; list-style: none; margin: 0; 
-            ">
-              <li 
-                v-for="saran in filterSaran" 
-                :key="saran" 
-                @click="addFilterTag(saran)"
-                style="
-                  /* --- UBAH TINGGI KOTAK DI SINI --- */
-                  height: 130px; /* Saya perbesar tingginya agar muat gambar portrait */
-                  
-                  display: flex; 
-                  flex-direction: column;
-                  align-items: center;
-                  justify-content: center;
-                  text-align: center;
-                  background: #f8f9fa; 
-                  border: 1px solid #eee;
-                  border-radius: 8px;
-                  cursor: pointer;
-                  font-weight: bold;
-                  font-size: 0.8em;
-                  color: #444;
-                  transition: all 0.2s;
-                  overflow: hidden;
-                  padding: 5px; /* Tambah padding dalam sedikit */
-                "
-                onmouseover="this.style.background='#3498db'; this.style.color='white'; this.style.borderColor='#3498db'; this.style.transform='scale(1.05)';"
-                onmouseout="this.style.background='#f8f9fa'; this.style.color='#444'; this.style.borderColor='#eee'; this.style.transform='scale(1)';"
-              >
-                
-                <img 
-                  :src="`/characters/${saran}.png`" 
-                  alt="" 
-                  style="
-                    /* --- GAYA GAMBAR BARU (TIDAK BUNDAR) --- */
-                    width: 100%;         /* Lebar memenuhi kotak */
-                    height: 90px;        /* Tinggi area gambar */
-                    object-fit: contain; /* PENTING: Agar gambar utuh masuk ke area tanpa terpotong */
-                    margin-bottom: 5px;
-                    /* border-radius: 50%;  <-- INI YANG DULUA DIHAPUS */
-                  "
-                  onerror="this.style.display='none'" 
-                />
-
-                <span style="width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
-                  {{ saran }}
-                </span>
-
-              </li>
-            </ul>
-    </div>
+  <div style="display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 5px;">
+    <span v-for="tag in filterTags" :key="tag.character_name" style="background: #3498db; color: white; padding: 4px 10px 4px 4px; border-radius: 20px; font-size: 0.9em; display: flex; align-items: center; gap: 6px; font-weight: bold; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+      <img :src="tag.image_url" alt="" style="width: 24px; height: 24px; border-radius: 50%; object-fit: cover; background: white; border: 2px solid white;" onerror="this.style.display='none'" />
+      {{ tag.character_name }}
+      <button @click="removeFilterTag(tag)" style="background: none; border: none; color: white; cursor: pointer; font-weight: bold; font-size: 1.1em; margin-left: 2px; opacity: 0.8;" onmouseover="this.style.opacity='1'" onmouseout="this.style.opacity='0.8'">
+        &times;
+      </button>
+    </span>
   </div>
+
+  <input type="text" v-model="filterInput" placeholder="Ketik nama karakter (misal: Amiya)..." style="width: 100%; padding: 8px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box;" @focus="isFilterFocused = true" @blur="onFilterBlur">
+
+  <ul v-if="filterSaran.length > 0" style="position: absolute; top: 100%; left: 0; right: 0; z-index: 100; background: white; border: 1px solid #ddd; border-radius: 0 0 8px 8px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); max-height: 500px; overflow-y: auto; display: grid; grid-template-columns: repeat(auto-fill, minmax(90px, 1fr)); gap: 8px; padding: 10px; list-style: none; margin: 0;">
+    <li v-for="saran in filterSaran" :key="saran.character_name" @click="addFilterTag(saran)" style="height: 130px; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; background: #f8f9fa; border: 1px solid #eee; border-radius: 8px; cursor: pointer; font-weight: bold; font-size: 0.8em; color: #444; transition: all 0.2s; overflow: hidden; padding: 5px;" onmouseover="this.style.background='#3498db'; this.style.color='white'; this.style.borderColor='#3498db'; this.style.transform='scale(1.05)';" onmouseout="this.style.background='#f8f9fa'; this.style.color='#444'; this.style.borderColor='#eee'; this.style.transform='scale(1)';">
+      
+      <img :src="saran.image_url" alt="" style="width: 100%; height: 90px; object-fit: contain; margin-bottom: 5px;" onerror="this.style.display='none'" />
+
+      <span style="width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+        {{ saran.character_name }}
+      </span>
+    </li>
+  </ul>
+</div>
+  </div>
+
+<div v-if="showCustomAlert" class="custom-alert-overlay" @click.self="tutupPesan">
+  <div class="custom-alert-content" :class="customAlertType">
+    
+    <div class="alert-header" style="padding: 30px 25px 10px; text-align: center;">
+      <h3 class="alert-title" style="margin: 0; font-size: 1.6rem; font-weight: 800; color: #2c3e50;">
+        {{ customAlertTitle }}
+      </h3>
+    </div>
+
+    <div class="alert-body" style="padding: 10px 25px 25px; text-align: center; color: #4a5568;">
+      <p>{{ customAlertMessage }}</p>
+    </div>
+
+    <div class="alert-footer" style="padding: 15px 25px 25px; display: flex; justify-content: center;">
+      <button @click="tutupPesan" class="btn-alert-ok">OK, Meong</button>
+    </div>
+
+  </div>
+</div>
+
+
 </template>
 
 
@@ -893,12 +1210,116 @@ body {
 }
 
 @media (max-width: 768px) {
-  body {
-    /* Di HP, sebaiknya background tidak fixed karena sering lag di Chrome/Safari Mobile */
-    background-attachment: scroll;
-    background-image: url('/bg_mobile.png'); /* Gambar versi potret */
+
+  h1 {
+    /* 1. Perkecil ukuran huruf (tadinya mungkin 1.4rem atau 1.5rem) */
+    font-size: 1.25rem !important; 
+    
+    /* 2. Rapatkan jarak antar baris */
+    line-height: 1.1; 
+    
+    /* 3. Beri jarak aman dari tombol hamburger */
+    margin-top: 15px !important;
+    margin-bottom: 10px !important;
+    
+    /* 4. Pastikan teks tidak terlalu lebar */
+    max-width: 85%; 
+    margin-left: auto !important;
+    margin-right: auto !important;
+    
+    font-weight: 800; /* Tetap tebal agar tegas */
+    text-align: center;
+  }
+  /* 1. Pastikan container tidak punya padding kiri-kanan yang mengganggu */
+  .container {
+    padding-left: 0 !important;
+    padding-right: 0 !important;
+    width: 100vw !important; /* Paksa selebar layar HP */
+    overflow-x: hidden;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+
+  /* 2. Layout harus menjadi Anchor tengah */
+  .layout {
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: center !important; 
+    justify-content: flex-start !important;
+    width: 100% !important;
+    margin: 0 auto !important;
+    padding: 0 !important;
+    gap: 10px !important;
+  }
+
+  /* 3. Col-left sebagai wrapper peta */
+  .col-left {
+    width: 100% !important;
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: center !important; /* Menengahkan isinya (map-window) */
+    margin: 0 !important;
+  }
+
+  /* 4. Map Window dengan margin auto yang kuat */
+  .map-window {
+    width: 100% !important; /* Sedikit lebih kecil agar gap kanan-kiri terlihat seimbang */
+    height: 220px !important;
+    margin-left: auto !important;
+    margin-right: auto !important;
+    display: block !important;
+    border-radius: 12px;
+  }
+
+  /* 5. Info Panel (Form) */
+  .info-panel {
+    width: 100% !important; /* Lebar harus SAMA dengan map-window */
+    margin-left: auto !important;
+    margin-right: auto !important;
+    padding: 15px !important;
+    box-sizing: border-box;
+  }
+
+  /* 6. Hilangkan elemen dekorasi yang mungkin mendorong layout (jika ada) */
+  .pixel-decoration-atau-apapun {
+    display: none; 
+  }
+
+  .search-box {
+    width: 100% !important; /* Samakan dengan lebar peta agar simetris */
+    margin: 20px auto !important; /* Beri jarak atas-bawah dan tengahkan */
+    padding: 15px !important;
+    box-sizing: border-box;
+    display: block !important;
+    position: relative !important;
+  }
+
+  /* 2. Lebarkan Input Pencarian di dalamnya */
+  .search-box input {
+    width: 100% !important;
+    font-size: 1rem !important; /* Ukuran teks agar enak diketik jari */
+    padding: 10px !important;
+    box-sizing: border-box;
+  }
+
+  /* 3. Atur Grid Karakter (Saran) agar tidak berantakan */
+  .search-box ul {
+    width: 100% !important;
+    grid-template-columns: repeat(auto-fill, minmax(80px, 1fr)) !important; /* Grid lebih kecil agar muat banyak */
+    gap: 5px !important;
+    padding: 10px !important;
+    left: 0 !important;
+    right: 0 !important;
+  }
+
+  /* 4. Pastikan tag yang sudah dipilih juga rapi */
+  .search-box span {
+    font-size: 0.8rem !important;
+    padding: 4px 8px !important;
   }
 }
+  
 
 .container {
   
@@ -1102,5 +1523,459 @@ input[type="url"],
 .search-box {
   background-color: #ffffff !important;
   color: #2c3e50 !important;
+}
+
+.hamburger-btn {
+  position: fixed;
+  top: 20px;
+  left: 20px;
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-around;
+  width: 50px;
+  height: 45px;
+  background: white; /* Beri background putih agar kontras dengan peta */
+  border: 2px solid #2c3e50;
+  border-radius: 8px;
+  cursor: pointer;
+  padding: 8px;
+  box-shadow: 0 4px 10px rgba(0,0,0,0.3); /* Shadow lebih dalam */
+  transition: all 0.2s ease; /* Efek transisi saat ditekan */
+}
+
+.hamburger-btn span {
+  width: 100%;
+  height: 4px;
+  background-color: #333;
+  transition: 0.3s;
+}
+
+.hamburger-btn:active {
+  transform: scale(0.9); /* Sedikit mengecil saat diklik */
+  background-color: #f0f0f0;
+}
+
+/* Sidebar Styling */
+.sidebar {
+  position: fixed;
+  top: 0;
+  left: -300px; /* Sembunyi di kiri */
+  width: 280px;
+  height: 100%;
+  background: white;
+  z-index: 1001;
+  transition: 0.4s ease; /* Animasi geser */
+  box-shadow: 2px 0 10px rgba(0,0,0,0.1);
+  display: flex;
+  flex-direction: column;
+}
+
+.sidebar.is-open {
+  left: 0; /* Muncul ke layar */
+}
+
+/* Overlay Gelap */
+.sidebar-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(0, 0, 0, 0.5);
+  z-index: 1000;
+}
+
+/* Header & Content Sidebar */
+.sidebar-header {
+  padding: 20px;
+  background: #2c3e50;
+  color: white;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.sidebar-content {
+  padding: 20px;
+  overflow-y: auto;
+}
+
+.menu-item {
+  padding: 12px 0;
+  border-bottom: 1px solid #eee;
+  cursor: pointer;
+  font-weight: bold;
+}
+
+.close-btn {
+  background: none;
+  border: none;
+  color: white;
+  font-size: 24px;
+  cursor: pointer;
+}
+
+/* Container tag yang sudah dipilih */
+.tags-container {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px; /* Jarak antar kotak */
+  margin-bottom: 10px;
+  margin-top: 5px;
+}
+
+.tag-karakter {
+  background-color: #e0f2f1; /* Hijau pudar lembut */
+  color: #00695c; /* Teks hijau gelap */
+  padding: 6px 12px;
+  border-radius: 20px; /* Membuat sudutnya sangat membulat (oval) */
+  font-size: 0.9em;
+  display: flex;
+  align-items: center;
+  gap: 8px; /* Jarak teks dengan tombol 'x' */
+  border: 1px solid #b2dfdb; /* Garis tepi tipis agar lebih tegas */
+  box-shadow: 0 1px 3px rgba(0,0,0,0.05); /* Bayangan sangat tipis */
+  transition: all 0.2s ease;
+}
+.tag-karakter:hover {
+  background-color: #b2dfdb;
+  border-color: #80cbc4;
+}
+
+.tag-karakter button {
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  color: #d32f2f; /* Warna merah cerah untuk tanda silang */
+  font-size: 1.2em;
+  font-weight: bold;
+  line-height: 1;
+  margin-left: 2px;
+  opacity: 0.7; /* Sedikit pudar saat normal */
+  transition: opacity 0.2s;
+}
+
+.tag-karakter button:hover {
+  opacity: 1;
+  transform: scale(1.1); /* Sedikit membesar */
+}
+/* Dropdown yang melayang */
+.dropdown-sugesti {
+  position: absolute;
+  top: 100%; /* Muncul tepat di bawah input */
+  left: 0;
+  right: 0;
+  z-index: 999; /* Pastikan paling depan */
+  background: white;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  list-style: none;
+  padding: 0;
+  margin: 2px 0 0 0;
+  max-height: 200px;
+  overflow-y: auto;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+}
+
+.dropdown-sugesti li {
+  padding: 10px 15px;
+  cursor: pointer;
+  border-bottom: 1px solid #eee;
+  transition: background 0.2s;
+  color: #333;
+}
+
+.dropdown-sugesti li:last-child {
+  border-bottom: none;
+}
+
+.dropdown-sugesti li:hover {
+  background-color: #f5f5f5;
+  color: #42b883; /* Warna hijau khas Vue/Arknights */
+}
+
+.input-form {
+  width: 100%;
+  padding: 10px;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  box-sizing: border-box;
+}
+
+.filter-dropdown-grid {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  z-index: 100;
+  background: white;
+  border: 1px solid #ddd;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
+  gap: 10px;
+  padding: 15px;
+  max-height: 400px;
+  overflow-y: auto;
+  box-shadow: 0 8px 16px rgba(0,0,0,0.2);
+}
+
+.filter-dropdown-grid li {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 8px;
+  border: 1px solid #eee;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: 0.2s;
+}
+
+.filter-dropdown-grid li:hover {
+  background: #3498db;
+  color: white;
+  transform: scale(1.05);
+}
+
+.filter-dropdown-grid img {
+  width: 100%;
+  height: 80px;
+  object-fit: contain; /* Agar gambar tidak terpotong */
+  margin-bottom: 5px;
+}
+
+.tag-karakter-filter {
+  background: #3498db;
+  color: white;
+  padding: 5px 12px 5px 5px;
+  border-radius: 20px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: bold;
+}
+
+.tag-karakter-filter img {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: white;
+}
+
+.character-preview-section {
+  margin-top: 15px;
+  border-top: 1px solid #eee;
+  padding-top: 10px;
+}
+
+/* Container untuk deretan foto (Flexbox agar responsif) */
+.portrait-container {
+  display: flex;
+  flex-wrap: wrap; /* Turun ke bawah jika tidak muat */
+  gap: 10px; /* Jarak antar foto */
+  margin-top: 8px;
+}
+
+/* Kotak untuk satu foto + nama */
+.portrait-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 60px; /* Lebar kotak foto */
+  text-align: center;
+}
+
+/* Styling Foto agar Bulat */
+.portrait-img {
+  width: 50px;
+  height: 50px;
+  object-fit: cover; /* Agar gambar tidak gepeng */
+  border-radius: 50%; /* Membuat jadi bulat sempurna */
+  border: 2px solid #ddd; /* Beri garis tepi tipis */
+  box-shadow: 0 2px 5px rgba(0,0,0,0.1); /* Shadow tipis */
+  background-color: white; /* Background agar jika transparan tidak aneh */
+}
+
+/* Styling Nama Kecil di Bawah Foto (Opsional) */
+.portrait-name {
+  font-size: 0.7em;
+  color: #666;
+  margin-top: 4px;
+  /* Agar teks panjang terpotong rapi dengan ellipsis (...) */
+  width: 100%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.contributor-section {
+  margin-top: 20px;
+  padding-top: 15px;
+  border-top: 1px dashed #ddd;
+  text-align: center;
+}
+
+.contributor-label {
+  display: block;
+  color: #7f8c8d;
+  font-size: 0.75rem;
+  margin-bottom: 10px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+
+.contributor-list {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+}
+
+.discord-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center; /* Tambahkan ini agar teks benar-benar di tengah */
+  background-color: #5865F2; /* Warna khas Discord */
+  color: white !important;
+  padding: 6px 16px; /* Padding lebih seimbang tanpa ikon */
+  border-radius: 20px;
+  text-decoration: none;
+  font-size: 0.85rem;
+  font-weight: bold;
+  transition: all 0.2s ease;
+  border: none;
+}
+
+.discord-badge:hover {
+  background-color: #4752c4;
+  transform: translateY(-2px);
+  box-shadow: 0 4px 10px rgba(88, 101, 242, 0.3);
+}
+
+/* Rapikan bagian teksnya */
+.discord-badge span {
+  color: white !important;
+  display: inline-block;
+  line-height: 1; /* Biar teksnya pas di tengah secara vertikal */
+  padding: 0;
+  margin: 0;
+  max-width: 150px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Pastikan Ikon tidak ikut berantakan */
+.discord-icon {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0; /* Agar ikon tidak gepeng saat teks panjang */
+  fill: white !important;
+  color: white !important;
+}
+
+/* --- CSS POP-UP PESAN CUSTOM --- */
+
+/* Overlay Gelap Latar Belakang */
+.custom-alert-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background-color: rgba(0, 0, 0, 0.6); /* Gelap transparan */
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 20000; /* Pastikan di atas segalanya */
+  backdrop-filter: blur(4px); /* Efek blur modern */
+  transition: all 0.3s ease;
+}
+
+/* Kotak Konten Pop-up */
+.custom-alert-content {
+  background-color: #ffffff;
+  width: 90%;
+  max-width: 400px;
+  border-radius: 16px; /* Sudut tumpul */
+  box-shadow: 0 15px 40px rgba(0, 0, 0, 0.3);
+  overflow: hidden;
+  animation: alertPopIn 0.3s ease-out; /* Animasi muncul */
+  display: flex;
+  flex-direction: column;
+}
+
+/* Animasi Muncul */
+@keyframes alertPopIn {
+  from { opacity: 0; transform: scale(0.8); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+/* Header Pop-up */
+.alert-header {
+  padding: 25px 25px 15px;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 15px;
+}
+
+/* Judul Pesan */
+.alert-title {
+  margin: 0;
+  font-size: 1.5rem;
+  font-weight: 800;
+  letter-spacing: -0.5px;
+}
+
+
+/* Body Pesan */
+.alert-body {
+  padding: 0 25px 25px;
+  text-align: center;
+  color: #4a5568;
+  font-size: 1rem;
+  line-height: 1.5;
+}
+.alert-body p { margin: 0; }
+
+/* Footer & Tombol */
+.alert-footer {
+  padding: 15px 25px 25px;
+  display: flex;
+  justify-content: center;
+}
+
+/* Tombol OK Modern (vibe Arknights sedikit) */
+.btn-alert-ok {
+  background-color: #2c3e50; /* Warna gelap */
+  color: #ffffff;
+  border: none;
+  padding: 12px 30px;
+  border-radius: 8px;
+  font-weight: bold;
+  font-size: 1rem;
+  cursor: pointer;
+  transition: all 0.2s;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+}
+
+.btn-alert-ok:hover {
+  background-color: #1a252f;
+  transform: translateY(-2px);
+  box-shadow: 0 6px 12px rgba(0, 0, 0, 0.2);
+}
+
+.btn-alert-ok:active {
+  transform: translateY(0);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.menu-item {
+  text-decoration: none; /* Hapus garis bawah */
+  color: inherit;       /* Paksa warna teks ikut warna menu lainnya */
+  display: block;       /* Agar satu baris menu bisa diklik semua area-nya */
 }
 </style>
