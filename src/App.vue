@@ -844,21 +844,14 @@ watch(inputSearch, (keywordBaru) => {
     <hr>
     <div class="menu-item"> Leaderboard Kontributor</div>
     <div class="menu-item"> Statistik Karakter</div>
-    <div class="menu-item"> Link Komunitas</div>
+    <a href="https://linktr.ee/ArknightsIndonesiaAKID" target="_blank" class="menu-item link-no-style">
+    Link Komunitas
+    </a>
     <div class="menu-item"> About</div>
-    <div class="menu-item"> Log out</div>
   </div>
 </aside>
 
   <div class="container">
-    <div style="position: fixed; bottom: 10px; right: 10px; background: rgba(0,0,0,0.8); color: white; padding: 10px; border-radius: 5px; font-family: monospace; z-index: 10000; font-size: 12px;">
-      <div :style="{ color: currentUser ? '#42b883' : '#ff7675' }">
-        Login: {{ currentUser ? 'YA' : 'TIDAK' }}
-      </div>
-      <div :style="{ color: isAdmin ? '#f7b731' : 'white' }">
-        Role: {{ userRole }} (isAdmin: {{ isAdmin }})
-      </div>
-    </div>
     <h1>Peta persebaran merch Arknights di Comipara</h1>
 
     <div class="layout">
@@ -1968,4 +1961,9 @@ input[type="url"],
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
 }
 
+.menu-item {
+  text-decoration: none; /* Hapus garis bawah */
+  color: inherit;       /* Paksa warna teks ikut warna menu lainnya */
+  display: block;       /* Agar satu baris menu bisa diklik semua area-nya */
+}
 </style>
