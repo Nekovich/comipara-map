@@ -137,6 +137,15 @@ const customAlertTitle = ref('Pemberitahuan');
 const customAlertType = ref('success'); // 'success' atau 'info'
 let resolveAlert; // Buat handle Promise (opsional, biar mirip alert asli)
 
+const ensureExternalLink = (url) => {
+  if (!url) return '';
+  // Cek apakah sudah diawali http:// atau https://
+  if (url.startsWith('http://') || url.startsWith('https://')) {
+    return url;
+  }
+  // Jika belum, tambahkan https:// di depannya
+  return `https://${url}`;
+};
 // AKHIR DAFTAR VARIABEL --- IGNORE ------------------------
 
 async function fetchUserRole() {
@@ -953,7 +962,10 @@ watch(inputSearch, (keywordBaru) => {
           </p>
           <p>
             <strong>Katalog:</strong> 
-            <a v-if="infoCircle.link_katalog" :href="infoCircle.link_katalog" target="_blank" style="color: #3498db; text-decoration: none; font-weight: bold;">
+            <a v-if="infoCircle.link_katalog" 
+              :href="ensureExternalLink(infoCircle.link_katalog)" 
+              target="_blank" 
+              style="color: #3498db; text-decoration: none; font-weight: bold;">
               Buka Katalog ↗
             </a>
             <span v-else style="color: grey; font-style: italic;">
