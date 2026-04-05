@@ -1991,4 +1991,31 @@ input[type="url"],
   color: inherit;       /* Paksa warna teks ikut warna menu lainnya */
   display: block;       /* Agar satu baris menu bisa diklik semua area-nya */
 }
+
+.btn-katalog {
+  background: #ff7c00; /* Warna Orange Kontras */
+  color: white;
+  padding: 12px 24px;
+  border-radius: 50px;
+  font-weight: bold;
+  border: none;
+  cursor: pointer;
+  box-shadow: 0 0 0 0 rgba(255, 124, 0, 0.7);
+  animation: pulse-orange 2s infinite;
+}
+
+@keyframes pulse-orange {
+  0% {
+    transform: scale(0.95);
+    box-shadow: 0 0 0 0 rgba(255, 124, 0, 0.7);
+  }
+  70% {
+    transform: scale(1);
+    box-shadow: 0 0 0 15px rgba(255, 124, 0, 0);
+  }
+  100% {
+    transform: scale(0.95);
+    box-shadow: 0 0 0 0 rgba(255, 124, 0, 0);
+  }
+}
 </style>
