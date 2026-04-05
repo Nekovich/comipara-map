@@ -976,10 +976,10 @@ watch(inputSearch, (keywordBaru) => {
           <p>
             <strong>Katalog:</strong> 
             <a v-if="infoCircle.link_katalog" 
-              :href="ensureExternalLink(infoCircle.link_katalog)" 
-              target="_blank" 
-              style="color: #3498db; text-decoration: none; font-weight: bold;">
-              Buka Katalog ↗
+               :href="ensureExternalLink(infoCircle.link_katalog)" 
+               target="_blank" 
+               class="btn-katalog-glow">
+               Buka Katalog Karakter ↗
             </a>
             <span v-else style="color: grey; font-style: italic;">
               tidak ada katalog
@@ -1992,30 +1992,49 @@ input[type="url"],
   display: block;       /* Agar satu baris menu bisa diklik semua area-nya */
 }
 
-.btn-katalog {
-  background: #ff7c00; /* Warna Orange Kontras */
-  color: white;
-  padding: 12px 24px;
-  border-radius: 50px;
-  font-weight: bold;
+/* Style untuk tombol Katalog */
+.btn-katalog-glow {
+  background-color: #ff7c00; /* Warna utama */
+  color: #ffffff;
+  font-weight: 800;
   border: none;
+  border-radius: 12px;
+  padding: 12px 24px;
   cursor: pointer;
-  box-shadow: 0 0 0 0 rgba(255, 124, 0, 0.7);
-  animation: pulse-orange 2s infinite;
+  position: relative;
+  transition: all 0.3s ease;
+  z-index: 1;
+  text-transform: uppercase;
+  letter-spacing: 1px;
 }
 
-@keyframes pulse-orange {
+/* Animasi Pulse di sekeliling tombol */
+.btn-katalog-glow::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  border-radius: 12px;
+  background: #ff7c00;
+  z-index: -1;
+  animation: glow-pulse 2s infinite;
+}
+
+@keyframes glow-pulse {
   0% {
-    transform: scale(0.95);
-    box-shadow: 0 0 0 0 rgba(255, 124, 0, 0.7);
-  }
-  70% {
     transform: scale(1);
-    box-shadow: 0 0 0 15px rgba(255, 124, 0, 0);
+    opacity: 0.8;
   }
   100% {
-    transform: scale(0.95);
-    box-shadow: 0 0 0 0 rgba(255, 124, 0, 0);
+    transform: scale(1.4); /* Lingkaran cahaya membesar */
+    opacity: 0; /* Menghilang di ujung */
   }
+}
+
+/* Efek saat ditekan */
+.btn-katalog-glow:active {
+  transform: scale(0.95);
 }
 </style>
