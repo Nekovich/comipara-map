@@ -83,7 +83,16 @@ async function fetchCharacters() {
     masterKarakter.value = data.map(c => c.character_name);
   }
 }
-
+const dataKarakter = ref([]);
+const karakterTerurut = computed(() => {
+  // 1. Ambil data mentah (objek karakter) berdasarkan ID yang ada di infoCircle
+  const listMentah = getObjKarakterDariIds(infoCircle.value?.character_ids || []);
+  
+  // 2. Urutkan berdasarkan 'character_name' (sesuaikan nama kolom di database kamu)
+  return [...listMentah].sort((a, b) => {
+    return a.character_name.localeCompare(b.character_name);
+  });
+});
 
 // variabel untuk touchscreen (mobile)
 const touchStartX = ref(0);
@@ -942,17 +951,21 @@ watch(inputSearch, (keywordBaru) => {
               }}
             </span>
           </p>
-          <div class="character-preview-section" v-if="getObjKarakterDariIds(infoCircle.character_ids).length > 0">
+          <div class="character-preview-section" v-if="karakterTerurut.length > 0">
             <strong>Karakter yang Dijual:</strong>
             
             <div class="portrait-container">
-              <div v-for="char in getObjKarakterDariIds(infoCircle.character_ids)" 
+              <div v-for="char in karakterTerurut" 
                   :key="char.id" 
                   class="portrait-card"
-                  :title="char.character_name"> <img :src="char.image_url" 
+                  :title="char.character_name">
+                  
+                <img :src="char.image_url" 
                     :alt="char.character_name" 
                     class="portrait-img"
-                    onerror="this.src='/src/assets/avatar_placeholder.png';"> <span class="portrait-name">{{ char.character_name }}</span>
+                    onerror="this.src='/src/assets/avatar_placeholder.png';">
+                    
+                <span class="portrait-name">{{ char.character_name }}</span>
               </div>
             </div>
           </div>
