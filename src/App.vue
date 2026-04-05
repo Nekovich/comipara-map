@@ -2,9 +2,10 @@
 import panzoom from 'panzoom'; // untuk fitur zoom dan pan
 import { onMounted, ref, nextTick, computed, watch } from 'vue'; 
 import { supabase } from './supabase';
-import { operatorArknights } from './data/ListOperator';
 
 // --- DAFTAR VARIABLE ---
+const GRID_SIZE = 400; // Ukuran kotak grid (sesuaikan jika jalur kurang detail)
+let graphCache = null; // Ganti 'graph' jadi 'graphCache'
 const currentUser = ref(null); // Untuk menyimpan data user yang sedang login
 const svgContent = ref(''); //  untuk menyimpan konten SVG
 const errorMessage = ref(''); // untuk menyimpan pesan error
@@ -20,6 +21,8 @@ const userCache = ref([]); // Untuk menyimpan daftar user (ID vs Nama)
 const inputSearch = ref(''); // Untuk kotak pencarian global
 const filterInput = ref(''); // Untuk kotak input filter karakter
 const filterTags = ref([]); // Untuk menyimpan tag karakter yang dipilih sebagai filter
+const selectedBooths = ref([]); // Menampung ID meja yang dipilih (untuk Blue Glow)
+const autoPathMode = ref(false); // Switch untuk mengaktifkan mode pilih jalur
 const filterSaran = computed(() => {
   const cari = filterInput.value.trim().toLowerCase();
   
@@ -68,31 +71,9 @@ const daftarFandom = [
 ];
 
 // DATA MASTER KARAKTER === isi data karakter apa saja disini
-const masterKarakter = ref([]);
 const inputSearchKarakter = ref(''); // Apa yang diketik user (misal: "wisa")
 const selectedKarakter = ref([]);    // Apa yang sudah dipilih (misal: ['Wisadel'])
 
-async function fetchCharacters() {
-  const { data, error } = await supabase
-    .from('character')
-    .select('character_name')
-    .order('character_name', { ascending: true });
-
-  if (data) {
-    // Ubah array objek menjadi array string nama saja
-    masterKarakter.value = data.map(c => c.character_name);
-  }
-}
-const dataKarakter = ref([]);
-const karakterTerurut = computed(() => {
-  // 1. Ambil data mentah (objek karakter) berdasarkan ID yang ada di infoCircle
-  const listMentah = getObjKarakterDariIds(infoCircle.value?.character_ids || []);
-  
-  // 2. Urutkan berdasarkan 'character_name' (sesuaikan nama kolom di database kamu)
-  return [...listMentah].sort((a, b) => {
-    return a.character_name.localeCompare(b.character_name);
-  });
-});
 
 // variabel untuk touchscreen (mobile)
 const touchStartX = ref(0);
@@ -144,7 +125,6 @@ const showCustomAlert = ref(false);
 const customAlertMessage = ref('');
 const customAlertTitle = ref('Pemberitahuan');
 const customAlertType = ref('success'); // 'success' atau 'info'
-let resolveAlert; // Buat handle Promise (opsional, biar mirip alert asli)
 
 const ensureExternalLink = (url) => {
   if (!url) return '';
@@ -207,14 +187,21 @@ function onFilterBlur() {
   }, 200);
 }
 
-// FUNGI WARNAI PETA (LOGIKA DEFAULT)
-
-const sedangMewarnai = ref(false);
+function getMejaCenter(id) {
+  const el = document.getElementById(id);
+  if (!el) return { x: 0, y: 0 };
+  
+  // Mengambil bounding box elemen di dalam koordinat SVG
+  const box = el.getBBox();
+  return {
+    x: box.x + box.width / 2,
+    y: box.y + box.height / 2
+  };
+}
 
 async function warnaiPeta() {
   console.log("Mencoba mewarnai peta...");
   try {
-    // 1. Ambil data dari kedua tabel secara paralel agar lebih cepat
     const [resCircles, resNewCircles] = await Promise.all([
       supabase.from('circles').select('*'),
       supabase.from('new_circles').select('*')
@@ -222,16 +209,10 @@ async function warnaiPeta() {
 
     const dataVerified = resCircles.data || [];
     const dataUsulan = resNewCircles.data || [];
-
-    // Update cache global (untuk keperluan search/filter)
     allCirclesCache.value = [...dataVerified, ...dataUsulan];
-    console.log("Data digabung. Jumlah:", allCirclesCache.value.length);
 
-    // 2. TAHAP OPTIMASI: Buat "Kamus Cepat" (Map)
-    // Map ini akan menyimpan aturan warna untuk setiap booth_id
     const statusMap = new Map();
 
-    // Masukkan data verified dulu (Warna Hijau/Abu)
     dataVerified.forEach(item => {
       const fandomData = item.fandom || "";
       const isArknights = fandomData.includes('Arknights');
@@ -242,44 +223,97 @@ async function warnaiPeta() {
       });
     });
 
-    // Masukkan data usulan (Warna Oranye)
-    // Jika ID meja sama, data usulan akan otomatis menimpa data verified di Map ini
     dataUsulan.forEach(item => {
       statusMap.set(item.booth_id, {
         color: '#f7b731',
         opacity: '0.8',
-        stroke: '#e67e22' // Beri sedikit garis tepi agar menonjol
+        stroke: '#e67e22'
       });
     });
 
-    // 3. TAHAP MEWARNAI (Hanya 1x Loop DOM)
     const semuaMeja = document.querySelectorAll('svg rect, svg path, svg polygon');
     
     semuaMeja.forEach(meja => {
       if (!meja.id) return;
+      const idMeja = meja.id;
+      const instruksi = statusMap.get(idMeja);
+      const isSelected = selectedBooths.value.includes(idMeja);
 
-      // Ambil instruksi warna dari "Kamus" Map kita
-      const instruksi = statusMap.get(meja.id);
-
+      // --- PEWARNAAN FANDOM ---
       if (instruksi) {
-        // Jika meja ada datanya (Verified atau Pending)
         meja.style.fill = instruksi.color;
         meja.style.fillOpacity = instruksi.opacity;
-        // Opsional: stroke untuk menandai usulan baru
-        if (instruksi.stroke !== 'none') {
-          meja.style.stroke = instruksi.stroke;
-          meja.style.strokeWidth = '1px';
-        }
+        meja.style.stroke = instruksi.stroke !== 'none' ? instruksi.stroke : 'none';
+        if (instruksi.stroke !== 'none') meja.style.strokeWidth = '1px';
       } else {
-        // Jika meja KOSONG (Default Biru Pudar)
         meja.style.fill = '#3498db'; 
         meja.style.fillOpacity = '0.05';
         meja.style.stroke = 'none';
       }
+
+      // --- GLOW SELECTED ---
+      if (isSelected) {
+        meja.classList.add('meja-glow-blue');
+        if (!instruksi) meja.style.fillOpacity = '0.3'; 
+        if (meja.parentElement) meja.parentElement.appendChild(meja);
+      } else {
+        meja.classList.remove('meja-glow-blue');
+      }
     });
 
-    console.log("Pewarnaan selesai!");
+    // --- LOGIKA JALUR PINTAR (A-STAR) ---
+    const svg = document.querySelector('svg');
+    if (svg) {
+      const garisLama = document.getElementById('jalur-optimasi');
+      if (garisLama) garisLama.remove();
 
+      if (selectedBooths.value.length >= 2) {
+        // Build graph jika belum ada
+        if (!graphCache) graphCache = buildNavigationGraph();
+
+        let smartPoints = [];
+
+        for (let i = 0; i < selectedBooths.value.length - 1; i++) {
+          const start = getMejaCenter(selectedBooths.value[i]);
+          const end = getMejaCenter(selectedBooths.value[i+1]);
+
+          // Konversi koordinat SVG ke koordinat Grid
+          const startNode = graphCache.grid[Math.floor(start.y / GRID_SIZE)][Math.floor(start.x / GRID_SIZE)];
+          const endNode = graphCache.grid[Math.floor(end.y / GRID_SIZE)][Math.floor(end.x / GRID_SIZE)];
+
+          // Cari rute lewat lorong hijau
+          const result = astar.search(graphCache, startNode, endNode);
+          
+          // Masukkan titik awal segmen
+          smartPoints.push(`${start.x},${start.y}`);
+
+          // Masukkan titik-titik lorong (A* mengembalikan [y][x] node)
+          result.forEach(node => {
+            const posX = node.y * GRID_SIZE + (GRID_SIZE / 2);
+            const posY = node.x * GRID_SIZE + (GRID_SIZE / 2);
+            smartPoints.push(`${posX},${posY}`);
+          });
+
+          // Jika ini segmen terakhir, masukkan titik meja terakhir
+          if (i === selectedBooths.value.length - 2) {
+            smartPoints.push(`${end.x},${end.y}`);
+          }
+        }
+
+        const polyline = document.createElementNS("http://www.w3.org/2000/svg", "polyline");
+        polyline.setAttribute('id', 'jalur-optimasi');
+        polyline.setAttribute('points', smartPoints.join(' '));
+        polyline.setAttribute('stroke', '#ff7c00'); 
+        polyline.setAttribute('stroke-width', '150'); // Disesuaikan skala 57000
+        polyline.setAttribute('fill', 'none');
+        polyline.setAttribute('stroke-dasharray', '400,200'); 
+        polyline.setAttribute('style', 'pointer-events: none; opacity: 0.8; stroke-linejoin: round; stroke-linecap: round;');
+
+        svg.appendChild(polyline);
+      }
+    }
+
+    console.log("Pewarnaan & Smart Pathfinding selesai!");
   } catch (err) {
     console.error("Crash di warnaiPeta:", err.message);
   }
@@ -306,7 +340,7 @@ onMounted(async () => {
     }
 
     // 3. LOAD PETA SVG
-    const namaFile = '/peta_final_compress.svg';
+    const namaFile = '/peta final_compress_test_jalur3.svg';
     const response = await fetch(namaFile);
     if (!response.ok) throw new Error(`Gagal load SVG! Status: ${response.status}`);
     const text = await response.text();
@@ -368,59 +402,75 @@ function onTouchEnd(event) {
 
 // 2. Klik Meja 
 async function onPetaClick(event) {
-  // 1. Reset awal: Matikan loading yang mungkin nyangkut & bersihkan error
+  // 1. Reset awal
   loading.value = false;
   errorMessage.value = '';
   
   let target = event.target;
 
-  // Normalisasi target untuk SVG di beberapa browser
+  // Normalisasi target SVG
   if (target && !target.classList && target.id) {
     target = document.getElementById(target.id);
   }
 
-  // LOGIKA 1: DESELECT (KLIK LANTAI / LUAR MEJA)
-  if (!target || !target.id || target.id === "") {
+  const idMeja = target?.id;
+
+  // --- LOGIKA 1: JALUR OTOMATIS (CEGATAN AWAL) ---
+  if (autoPathMode.value && idMeja && idMeja !== "") {
+    if (selectedBooths.value.includes(idMeja)) {
+      // DESELECT
+      selectedBooths.value = selectedBooths.value.filter(id => id !== idMeja);
+      target.classList.remove('meja-glow-blue');
+    } else {
+      // SELECT
+      selectedBooths.value.push(idMeja);
+      target.classList.add('meja-glow-blue');
+      if (target.parentElement) target.parentElement.appendChild(target);
+    }
+    // KUNCI: Panggil warnaiPeta() agar warna hijau/oranye tetap terjaga 
+    // dan tidak "terhapus" oleh state klik.
+    warnaiPeta(); 
+    return;
+  }
+
+  // --- LOGIKA 2: DESELECT (KLIK LANTAI / LUAR MEJA) ---
+  if (!target || !idMeja || idMeja === "") {
     if (lastSelectedElement.value) {
       lastSelectedElement.value.classList.remove('meja-selected');
+      // Glow biru JANGAN dihapus di sini sesuai permintaanmu tadi
       lastSelectedElement.value = null;
     }
     selectedBooth.value = '';
     infoCircle.value = null;
     dataUsulanPending.value = null;
     showForm.value = false;
-    return; // Keluar fungsi, loading tetap false
+    return; 
   }
 
-  // SEKARANG MULAI PROSES LOADING UNTUK MEJA
-  const idMeja = target.id;
+  // --- LOGIKA 3: KLIK BIASA (LIHAT DETAIL BOOTH) ---
   selectedBooth.value = idMeja;
   loading.value = true; 
-  
-  // Reset data lama agar tidak muncul data meja sebelumnya saat loading
   infoCircle.value = null;
   dataUsulanPending.value = null;
   showForm.value = false;
 
-  // Fitur Timeout: Jika 5 detik tidak ada respon dari Supabase, hentikan paksa.
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), 5000);
 
   try {
-    // Visual Highlight (Pindahkan kelas meja-selected)
+    // Visual Highlight Normal
     if (lastSelectedElement.value) {
       lastSelectedElement.value.classList.remove('meja-selected');
     }
     target.classList.add('meja-selected');
     lastSelectedElement.value = target;
 
-    // AMBIL DATA DARI SUPABASE (Dengan sinyal Abort)
+    // AMBIL DATA
     const [resUtama, resUsulan] = await Promise.all([
       supabase.from('circles').select('*').eq('booth_id', idMeja).maybeSingle(),
       supabase.from('new_circles').select('*').eq('booth_id', idMeja).order('created_at', { ascending: false })
     ]);
 
-    // Hapus timeout karena data berhasil diambil
     clearTimeout(timeoutId);
 
     const dataUtama = resUtama.data;
@@ -431,17 +481,14 @@ async function onPetaClick(event) {
     }
 
     if (dataUtama) {
-      // PRIORITAS 1: DATA VERIFIED
       infoCircle.value = dataUtama;
       const f = dataUtama.fandom;
       inputFandom.value = typeof f === 'string' ? f.split(', ') : (Array.isArray(f) ? f : []);
     } else if (listUsulan && listUsulan.length > 0) {
-      // PRIORITAS 2: DATA USULAN (PENDING)
       infoCircle.value = { ...listUsulan[0], status: 'pending' };
       const f = listUsulan[0].fandom;
       inputFandom.value = typeof f === 'string' ? f.split(', ') : (Array.isArray(f) ? f : []);
     } else {
-      // PRIORITAS 3: KOSONG TOTAL (Tampilkan Form Input)
       showForm.value = true;
       inputNama.value = '';
       inputFandom.value = [];
@@ -450,19 +497,15 @@ async function onPetaClick(event) {
     }
 
   } catch (err) {
-    // Jika dibatalkan oleh timeout atau koneksi putus
     if (err.name === 'AbortError') {
-      console.error("Request Timeout: Koneksi Supabase lambat.");
       errorMessage.value = "Koneksi lambat, coba klik lagi.";
     } else {
       console.error("Error Detail di onPetaClick:", err);
       errorMessage.value = "Gagal memuat data meja.";
     }
   } finally {
-    // KUNCI UTAMA: Apapun yang terjadi (Error, Timeout, atau Berhasil), 
-    // loading HARUS dimatikan agar tulisan "Sedang memuat" hilang.
     loading.value = false;
-    clearTimeout(timeoutId); // Pastikan timeout dibersihkan
+    clearTimeout(timeoutId);
   }
 }
 
@@ -592,32 +635,6 @@ async function tolakPerubahan(idDatabase) {
     await warnaiPeta(); 
     onPetaClick({ target: { id: itemUsulan.booth_id } });
   loading.value = false;
-}
-
-async function syncUserToDatabase(user) {
-  if (!user) return;
-
-  // AMBIL DISCORD ID ASLI (266217...)
-  const realDiscordId = user.user_metadata?.provider_id || 
-                        user.identities?.[0]?.provider_id;
-  
-  const discordName = user.user_metadata?.full_name || 'User';
-
-  // UPSERT: Masukkan ke tabel 'user'. 
-  // Jika ID sudah ada, dia cuma update nama. Jika belum, dia buat baru.
-  const { data, error } = await supabase
-    .from('user')
-    .upsert({ 
-      discord_id: realDiscordId, // Menggunakan ID Asli Discord
-      nama: discordName,
-      // role: 'user' // Default role bisa diset di database saja
-    }, { onConflict: 'discord_id' });
-
-  if (error) {
-    console.error("Gagal sinkronisasi user:", error.message);
-  } else {
-    console.log("User tersinkronisasi dengan Discord ID asli!");
-  }
 }
 
 async function fetchAllUsers() {
@@ -792,6 +809,140 @@ function tutupPesan() {
   showCustomAlert.value = false;
 }
 
+watch(selectedBooths, () => {
+  warnaiPeta();
+}, { deep: true });
+
+function toggleAutoPathMode() {
+  autoPathMode.value = !autoPathMode.value;
+  isSidebarOpen.value = false; // Tutup sidebar otomatis setelah diklik
+  
+  if (autoPathMode.value) {
+    tampilkanPesan("Mode Jalur Aktif", "Silakan klik meja-meja di peta untuk menandai rute kamu.", "info");
+  } else {
+    // Jika dimatikan, kita bersihkan glow-nya (opsional)
+    // selectedBooths.value = []; 
+    warnaiPeta();
+  }
+}
+
+function resetJalur() {
+  // 1. Bersihkan Array data
+  selectedBooths.value = [];
+  
+  // 2. Bersihkan Visual Glow di Peta
+  const glowingMeja = document.querySelectorAll('.meja-glow-blue');
+  glowingMeja.forEach(m => m.classList.remove('meja-glow-blue'));
+  
+  tampilkanPesan("Rute Dihapus", "Semua tanda jalur telah dibersihkan.", "info");
+}
+
+function generateShortestPath() {
+  if (selectedBooths.value.length < 2) return;
+
+  const originalList = [...selectedBooths.value];
+  const sortedList = [];
+  
+  // Kita mulai dari booth pertama yang diklik user sebagai titik awal
+  let currentId = originalList.shift();
+  sortedList.push(currentId);
+
+  while (originalList.length > 0) {
+    let currentPos = getMejaCenter(currentId);
+    let closestIdx = -1;
+    let minDistance = Infinity;
+
+    // Cari mana yang paling dekat dari posisi sekarang
+    for (let i = 0; i < originalList.length; i++) {
+      let targetPos = getMejaCenter(originalList[i]);
+      // Rumus Pythagoras: a^2 + b^2 = c^2
+      let dist = Math.sqrt(
+        Math.pow(targetPos.x - currentPos.x, 2) + 
+        Math.pow(targetPos.y - currentPos.y, 2)
+      );
+
+      if (dist < minDistance) {
+        minDistance = dist;
+        closestIdx = i;
+      }
+    }
+    // Pindah ke meja terdekat tersebut
+    currentId = originalList.splice(closestIdx, 1)[0];
+    sortedList.push(currentId);
+    console.log("Urutan Baru:", sortedList);
+    selectedBooths.value = sortedList;
+  }
+
+  // Update daftar pilihan dengan urutan yang sudah dioptimasi
+  selectedBooths.value = sortedList;
+  // Opsional: Jalankan warnaiPeta jika ingin ada efek visual urutan
+  warnaiPeta();
+}
+
+function isWalkable(x, y) {
+  const jalanEl = document.getElementById('jalan');
+  if (!jalanEl) return true; // Fallback jika objek tidak ditemukan
+
+  const svg = jalanEl.ownerSVGElement;
+  const point = svg.createSVGPoint();
+  point.x = x;
+  point.y = y;
+
+  // Mengecek apakah titik (x,y) berada di dalam shape 'jalan'
+  return jalanEl.isPointInFill(point);
+}
+
+function buildNavigationGraph() {
+  console.log("Membangun navigasi jalan...");
+  const svg = document.querySelector('svg');
+  const jalanEl = document.getElementById('jalan');
+  if (!jalanEl) return null; // Beri return null jika gagal
+
+  const width = 57000;
+  const height = 30000;
+  const rows = Math.ceil(height / GRID_SIZE);
+  const cols = Math.ceil(width / GRID_SIZE);
+  
+  let matrix = [];
+  const pt = svg.createSVGPoint();
+
+  for (let y = 0; y < rows; y++) {
+    let row = [];
+    for (let x = 0; x < cols; x++) {
+      pt.x = x * GRID_SIZE + (GRID_SIZE / 2);
+      pt.y = y * GRID_SIZE + (GRID_SIZE / 2);
+      
+      const isWalkable = jalanEl.isPointInFill(pt);
+      row.push(isWalkable ? 1 : 0); 
+    }
+    matrix.push(row);
+  }
+  
+  console.log("Navigasi siap!");
+  // Kembalikan objek Graph-nya
+  return new Graph(matrix); 
+}
+
+function findSmartPath(startId, endId) {
+  if (!graph) buildNavigationGraph();
+
+  const startPos = getMejaCenter(startId);
+  const endPos = getMejaCenter(endId);
+
+  // Konversi koordinat SVG ke index Grid
+  const startNode = graph.grid[Math.floor(startPos.y / GRID_SIZE)][Math.floor(startPos.x / GRID_SIZE)];
+  const endNode = graph.grid[Math.floor(endPos.y / GRID_SIZE)][Math.floor(endPos.x / GRID_SIZE)];
+
+  // Hitung rute dengan algoritma A*
+  const result = astar.search(graph, startNode, endNode);
+  
+  // Kembalikan koordinat asli SVG
+  return result.map(node => ({
+    x: node.y * GRID_SIZE + (GRID_SIZE / 2), // Library astar pakai [y][x]
+    y: node.x * GRID_SIZE + (GRID_SIZE / 2)
+  }));
+}
+
 // --- LOGIKA PENCARIAN (SEARCH ENGINE) ---
 watch(inputSearch, (keywordBaru) => {
   const keyword = keywordBaru.toLowerCase();
@@ -839,15 +990,35 @@ watch(inputSearch, (keywordBaru) => {
   });
 });
 
+watch(autoPathMode, (baru) => {
+  if (!baru) {
+    // Kita tidak menghapus .meja-glow-blue di sini
+    // Agar user tetap bisa melihat pilihan jalurnya sambil berinteraksi biasa
+    tampilkanPesan("Mode Jalur Mati", "Kembali ke mode info biasa. Glow tetap tersimpan.", "info");
+  } else {
+    tampilkanPesan("Mode Jalur Aktif", "Klik meja untuk menambah/menghapus dari rute.", "info");
+  }
+});
+
 
 </script>
 
 <template>
-  <button class="hamburger-btn" @click="toggleSidebar" aria-label="Menu">
-  <span></span>
-  <span></span>
-  <span></span>
-</button>
+
+<nav class="navbar">
+  <div class="navbar-container">
+    <button class="menu-toggle" @click="toggleSidebar">
+      <div class="bar"></div>
+      <div class="bar"></div>
+      <div class="bar"></div>
+    </button>
+    <h1 class="navbar-logo">
+       Comipara Arknights Map
+    </h1>
+  </div>
+</nav>
+
+<div class="navbar-spacer"></div>
 
 <div class="sidebar-overlay" v-if="isSidebarOpen" @click="toggleSidebar"></div>
 
@@ -860,6 +1031,7 @@ watch(inputSearch, (keywordBaru) => {
   <div class="sidebar-content">
     <p>dibuat oleh: Nekovich dari Arknights Indonesia (AKID)</p>
     <hr>
+    
     <div class="menu-item"> Leaderboard Kontributor</div>
     <div class="menu-item"> Statistik Karakter</div>
     <a href="https://linktr.ee/ArknightsIndonesiaAKID" target="_blank" class="menu-item link-no-style">
@@ -870,7 +1042,6 @@ watch(inputSearch, (keywordBaru) => {
 </aside>
 
   <div class="container">
-    <h1>Peta persebaran merch Arknights di Comipara</h1>
 
     <div class="layout">
       
@@ -886,10 +1057,38 @@ watch(inputSearch, (keywordBaru) => {
               @touchend="onTouchEnd"
             ></div>
           </div>
+          <div v-if="autoPathMode" class="floating-path-controls">
+            <div class="path-status">
+              <span class="pulse-icon">📍</span> 
+              <strong>{{ selectedBooths.length }} Booth Terpilih</strong>
+            </div>
+            
+            <div class="path-actions">
+              <div v-for="(id, index) in selectedBooths" :key="id">
+                {{ index + 1 }}. Booth {{ id }}
+              </div>
+              <button @click="generateShortestPath" class="btn-float-action optimize" v-if="selectedBooths.length > 1">
+                ⚡ Urutkan
+              </button>
+              <button @click="resetJalur" class="btn-float-action reset" v-if="selectedBooths.length > 0">
+                🧹 Reset
+              </button>
+              <button @click="autoPathMode = false" class="btn-float-action stop">
+                🛑 Selesai
+              </button>
+            </div>
+          </div>
         </div>
 
         <div class="zoom-controls">
-          <small>Jika kamu menggunakan HP. disarankan menggunakan tampilan Landscape</small>
+          <div class="map-legend-mini">
+            <div class="legend-row">
+              <div class="legend-item"><span class="dot green"></span> AK (Verif)</div>
+              <div class="legend-item"><span class="dot orange"></span> Unverif</div>
+              <div class="legend-item"><span class="dot grey"></span> Non-AK</div>
+              <div class="legend-item"><span class="dot blue-translucent"></span> No Data</div>
+            </div>
+          </div>
         </div>
 
         
@@ -951,21 +1150,17 @@ watch(inputSearch, (keywordBaru) => {
               }}
             </span>
           </p>
-          <div class="character-preview-section" v-if="karakterTerurut.length > 0">
+          <div class="character-preview-section" v-if="getObjKarakterDariIds(infoCircle.character_ids).length > 0">
             <strong>Karakter yang Dijual:</strong>
             
             <div class="portrait-container">
-              <div v-for="char in karakterTerurut" 
+              <div v-for="char in getObjKarakterDariIds(infoCircle.character_ids)" 
                   :key="char.id" 
                   class="portrait-card"
-                  :title="char.character_name">
-                  
-                <img :src="char.image_url" 
+                  :title="char.character_name"> <img :src="char.image_url" 
                     :alt="char.character_name" 
                     class="portrait-img"
-                    onerror="this.src='/src/assets/avatar_placeholder.png';">
-                    
-                <span class="portrait-name">{{ char.character_name }}</span>
+                    onerror="this.src='/src/assets/avatar_placeholder.png';"> <span class="portrait-name">{{ char.character_name }}</span>
               </div>
             </div>
           </div>
@@ -975,12 +1170,12 @@ watch(inputSearch, (keywordBaru) => {
           </p>
           <p>
             <strong>Katalog:</strong> 
-              <a v-if="infoCircle.link_katalog" 
-               :href="ensureExternalLink(infoCircle.link_katalog)" 
-               target="_blank" 
-               style="color: #3498db; text-decoration: none; font-weight: bold;">
-               Buka Katalog ↗
-              </a> 
+            <a v-if="infoCircle.link_katalog" 
+              :href="ensureExternalLink(infoCircle.link_katalog)" 
+              target="_blank" 
+              style="color: #3498db; text-decoration: none; font-weight: bold;">
+              Buka Katalog ↗
+            </a>
             <span v-else style="color: grey; font-style: italic;">
               tidak ada katalog
             </span>
@@ -1278,7 +1473,7 @@ body {
   /* 4. Map Window dengan margin auto yang kuat */
   .map-window {
     width: 100% !important; /* Sedikit lebih kecil agar gap kanan-kiri terlihat seimbang */
-    height: 220px !important;
+    height: 400px !important;
     margin-left: auto !important;
     margin-right: auto !important;
     display: block !important;
@@ -1330,6 +1525,17 @@ body {
   .search-box span {
     font-size: 0.8rem !important;
     padding: 4px 8px !important;
+  }
+  .navbar-logo {
+    font-size: 0.95rem; /* Judul lebih kecil di HP agar muat */
+  }
+  
+  .navbar {
+    height: 50px;
+  }
+  
+  .navbar-spacer {
+    height: 50px;
   }
 }
   
@@ -1992,49 +2198,282 @@ input[type="url"],
   display: block;       /* Agar satu baris menu bisa diklik semua area-nya */
 }
 
-/* Style untuk tombol Katalog */
-.btn-katalog-glow {
-  background-color: #ff7c00; /* Warna utama */
-  color: #ffffff;
-  font-weight: 800;
-  border: none;
-  border-radius: 12px;
-  padding: 12px 24px;
-  cursor: pointer;
-  position: relative;
-  transition: all 0.3s ease;
-  z-index: 1;
-  text-transform: uppercase;
-  letter-spacing: 1px;
+
+/* Animasi agar glow-nya sedikit bernapas/berdenyut */
+@keyframes neonBreathe {
+  0%, 100% { filter: drop-shadow(0 0 6px #00e5ff) drop-shadow(0 0 2px #ffffff); }
+  50% { filter: drop-shadow(0 0 10px #00e5ff) drop-shadow(0 0 4px #ffffff); }
 }
 
-/* Animasi Pulse di sekeliling tombol */
-.btn-katalog-glow::after {
-  content: "";
+.meja-glow-blue {
+  /* 2. Outline Tipis & Neon */
+  stroke: #e100ff !important;
+  /* Turunkan angka ini sampai teks ID meja terlihat jelas */
+  stroke-width: 50px !important; 
+  stroke-opacity: 1 !important;
+  
+  /* 3. Animasi Garis Berjalan */
+  stroke-dasharray: 300, 200;
+  stroke-linecap: square;
+  animation: tacticalMarchingAnts 1s linear infinite;
+
+  /* 4. Filter Shadow (Kecilkan angkanya agar tidak menutupi teks) */
+  z-index: 1000;
+  pointer-events: all !important;
+}
+
+@keyframes tacticalMarchingAnts {
+  from { stroke-dashoffset: 0; }
+  to { stroke-dashoffset: 500; } /* 2x dari dasharray */
+}
+
+/* Tambahkan efek hover agar user tahu area tersebut bisa di-klik */
+.meja-glow-blue:hover {
+  fill: rgba(0, 229, 255, 0.2) !important;
+  stroke-width: 1px !important;
+  filter: drop-shadow(0 0 12px #00e5ff) !important;
+}
+
+.active-mode {
+  background-color: #e3f2fd;
+  color: #1976d2 !important;
+  border-left: 4px solid #1976d2;
+}
+
+.path-summary {
+  padding: 10px;
+  background: #f8f9fa;
+  border-radius: 8px;
+  margin-top: 10px;
+}
+
+.btn-optimize {
+  background: #2c3e50;
+  color: white;
+  border: none;
+  padding: 5px 10px;
+  border-radius: 4px;
+  font-size: 0.8em;
+  cursor: pointer;
+  margin-top: 5px;
+  width: 100%;
+}
+
+.floating-path-controls {
   position: absolute;
+  bottom: 20px;
+  right: 20px;
+  z-index: 100;
+  background: rgba(255, 255, 255, 0.9);
+  padding: 12px;
+  border-radius: 12px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+  border: 2px solid #00e5ff; /* Samakan dengan warna glow biru */
+  backdrop-filter: blur(8px);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  animation: slideInUp 0.3s ease-out;
+}
+
+.path-status {
+  font-size: 0.9em;
+  color: #2c3e50;
+  text-align: center;
+}
+
+.path-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.btn-float-action {
+  border: none;
+  padding: 8px 16px;
+  border-radius: 6px;
+  font-weight: bold;
+  cursor: pointer;
+  transition: transform 0.2s;
+}
+
+.btn-float-action.optimize {
+  background: #2c3e50;
+  color: #00e5ff;
+}
+
+.btn-float-action.stop {
+  background: #eb4d4b;
+  color: white;
+}
+
+.btn-float-action:hover {
+  transform: scale(1.05);
+}
+
+/* Animasi icon agar user sadar mode aktif */
+.pulse-icon {
+  display: inline-block;
+  animation: pulse 1.5s infinite;
+}
+
+@keyframes pulse {
+  0% { transform: scale(1); opacity: 1; }
+  50% { transform: scale(1.2); opacity: 0.7; }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+@keyframes slideInUp {
+  from { transform: translateY(20px); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+
+
+@keyframes blueGlitch {
+  0% { opacity: 0.5; stroke-width: 8px; }
+  50% { opacity: 1; stroke-width: 2px; }
+  100% { opacity: 1; stroke-width: 4px; }
+}
+
+#jalur-optimasi {
+  animation: jalurBerjalan 1s linear infinite;
+}
+
+@keyframes jalurBerjalan {
+  from { stroke-dashoffset: 300; } /* Angka ini harus total dari dasharray (15+10) */
+  to { stroke-dashoffset: 0; }
+}
+
+#jalan, [id^="jalan"] {
+  fill: transparent !important;
+  stroke: none !important;
+  pointer-events: none; /* Agar tidak mengganggu klik pada meja */
+}
+
+.map-legend {
+  background: rgba(255, 255, 255, 0.95);
+  padding: 12px 20px;
+  border-radius: 12px;
+  border: 1px solid #e0e0e0;
+  margin: 10px 0;
+  box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+}
+.map-legend-mini {
+  background: white;
+  border-radius: 8px;
+  padding: 8px;
+  margin: 5px auto;
+  border: 1px solid #eee;
+  max-width: 95%;
+}
+
+.legend-title {
+  text-align: center;
+  margin: 0 0 10px 0;
+  font-size: 0.9rem;
+  font-weight: bold;
+}
+.legend-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.65rem; /* Ukuran font kecil tapi terbaca */
+  font-weight: bold;
+  white-space: nowrap;
+}
+.legend-item span {
+  font-size: 0.65rem; /* Perkecil ukuran font */
+}
+.legend-wrapper {
+  display: flex;
+  justify-content: space-evenly; /* Sebarkan rata secara horizontal */
+  align-items: center;
+  flex-wrap: nowrap; /* Paksa satu baris */
+  overflow-x: auto; /* Jika layar terlalu kecil, bisa di-swipe */
+  padding-bottom: 5px;
+}
+.legend-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 5px;
+}
+
+/* Lingkaran Warna */
+.dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 2px; /* Kotak sedikit rounded agar senada dengan pixel art */
+}
+
+.green { background-color: #42b883; }
+.orange { background-color: #f7b731; border: 1px solid #e67e22; }
+.grey { background-color: #9a9a9a; }
+.blue-translucent { 
+  background-color: rgba(52, 152, 219, 0.3); 
+  border: 1px dashed #3498db;
+}
+
+.landscape-hint {
+  text-align: center;
+  margin-top: 10px;
+  font-size: 0.7rem;
+  color: #999;
+  border-top: 1px solid #f0f0f0;
+  padding-top: 5px;
+}
+/* Navbar Utama */
+.navbar {
+  position: fixed;
   top: 0;
   left: 0;
-  right: 0;
-  bottom: 0;
-  border-radius: 12px;
-  background: #ff7c00;
-  z-index: -1;
-  animation: glow-pulse 2s infinite;
+  width: 100%;
+  height: 60px;
+  background-color: #ffffff;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+  z-index: 1000; /* Pastikan di atas segalanya */
+  display: flex;
+  align-items: center;
 }
 
-@keyframes glow-pulse {
-  0% {
-    transform: scale(1);
-    opacity: 0.8;
-  }
-  100% {
-    transform: scale(1.4); /* Lingkaran cahaya membesar */
-    opacity: 0; /* Menghilang di ujung */
-  }
+.navbar-container {
+  width: 100%;
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 0 15px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
 }
 
-/* Efek saat ditekan */
-.btn-katalog-glow:active {
-  transform: scale(0.95);
+.navbar-logo {
+  font-size: 1.1rem;
+  font-weight: 800;
+  color: #2c3e50;
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* Tombol Hamburger untuk HP */
+.menu-toggle {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 5px;
+}
+
+.menu-toggle .bar {
+  width: 22px;
+  height: 3px;
+  background-color: #333;
+  border-radius: 2px;
+}
+
+/* Spacer agar konten tidak "tenggelam" di bawah navbar */
+.navbar-spacer {
+  height: 60px;
 }
 </style>
