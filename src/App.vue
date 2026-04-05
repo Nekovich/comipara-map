@@ -975,12 +975,12 @@ watch(inputSearch, (keywordBaru) => {
           </p>
           <p>
             <strong>Katalog:</strong> 
-            <a v-if="infoCircle.link_katalog" 
+              <a v-if="infoCircle.link_katalog" 
                :href="ensureExternalLink(infoCircle.link_katalog)" 
                target="_blank" 
-               class="btn-katalog-glow">
-               Buka Katalog Karakter ↗
-            </a>
+               style="color: #3498db; text-decoration: none; font-weight: bold;">
+               Buka Katalog ↗
+              </a> 
             <span v-else style="color: grey; font-style: italic;">
               tidak ada katalog
             </span>
