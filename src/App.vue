@@ -658,13 +658,13 @@ function getNameFromId(id) {
 function getNamaKarakterDariIds(ids) {
   if (!ids || !Array.isArray(ids)) return '-';
   
-  // Cari nama di daftarKarakterDB berdasarkan ID yang ada di database
   const daftarNama = ids.map(id => {
     const found = daftarKarakterDB.value.find(char => char.id === id);
     return found ? found.character_name : 'Unknown';
   });
 
-  return daftarNama.join(', ');
+  // Tambahkan .sort() di sini agar urut abjad di tampilan detail
+  return daftarNama.sort().join(', ');
 }
 
 
