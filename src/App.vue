@@ -778,14 +778,15 @@ function batalEdit() {
 function getObjKarakterDariIds(ids) {
   if (!ids || !ids.length) return [];
   
-  // Ambil object karakter lengkap dari database master
+  // 1. Ambil object karakter lengkap dari database master
   const daftarObj = ids.map(id => {
-    // Gunakan == agar fleksibel BigInt/Number
     return daftarKarakterDB.value.find(char => char.id == id);
-  });
+  }).filter(obj => obj !== undefined);
 
-  // Filter agar tidak ada yang undefined (jika ID tidak ditemukan)
-  return daftarObj.filter(obj => obj !== undefined);
+  // 2. KUNCI PERBAIKAN: Tambahkan sortir berdasarkan nama karakter
+  return daftarObj.sort((a, b) => {
+    return a.character_name.localeCompare(b.character_name);
+  });
 }
 
 function getUsernameFromId(id) {
