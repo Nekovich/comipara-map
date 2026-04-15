@@ -83,7 +83,12 @@ const touchStartY = ref(0);
 async function loginWithDiscord() {
   const { data, error } = await supabase.auth.signInWithOAuth({
     provider: 'discord',
+    options: {
+      // TAMBAHKAN BARIS INI
+      redirectTo: 'https://peta-arknights-comipara.my.id/' 
+    }
   });
+  
   if (error) {
     console.error("Error login:", error.message);
     alert("Gagal menghubungkan ke Discord.");
