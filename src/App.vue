@@ -345,7 +345,7 @@ onMounted(async () => {
     }
 
     // 3. LOAD PETA SVG
-    const namaFile = '/peta final_compress_test_jalur3.svg';
+    const namaFile = '/peta_comipara7.svg';
     const response = await fetch(namaFile);
     if (!response.ok) throw new Error(`Gagal load SVG! Status: ${response.status}`);
     const text = await response.text();
