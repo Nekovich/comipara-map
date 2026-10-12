@@ -1016,7 +1016,7 @@ watch(autoPathMode, (baru) => {
       <div class="bar"></div>
     </button>
     <h1 class="navbar-logo">
-       Comifuro Arknights Map
+       Comipara 7 Arknights Map
     </h1>
   </div>
 </nav>
