@@ -3,6 +3,11 @@ import panzoom from 'panzoom'; // untuk fitur zoom dan pan
 import { onMounted, ref, nextTick, computed, watch } from 'vue'; 
 import { supabase } from './supabase';
 
+import { createApp } from 'vue'
+import App from './App.vue'
+import { inject } from '@vercel/analytics'
+createApp(App).mount('#app')
+
 // --- DAFTAR VARIABLE ---
 const GRID_SIZE = 400; // Ukuran kotak grid (sesuaikan jika jalur kurang detail)
 let graphCache = null; // Ganti 'graph' jadi 'graphCache'
