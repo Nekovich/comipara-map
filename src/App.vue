@@ -6,6 +6,7 @@ import { supabase } from './supabase';
 import { createApp } from 'vue'
 import App from './App.vue'
 import { Analytics } from "@vercel/analytics/next"
+import { inject } from '@vercel/analytics'
 createApp(App).mount('#app')
 
 // --- DAFTAR VARIABLE ---
